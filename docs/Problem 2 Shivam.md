@@ -70,3 +70,66 @@ For **LAN / Local storage**, the client sends the chunk in the request body (`PO
 2. **GDrive**: Client uploads to Drive; we compare Drive’s `sha256Checksum` to `chkh` (no download). Integrity at cloud = verified.
 3. **S3**: Server uploads with **ChecksumSHA256**; S3 validates. Integrity at cloud = verified (upload fails if mismatch).
 4. **Azure**: Server uploads with **Content-MD5**; Azure validates. Integrity at cloud = verified (upload fails if mismatch).
+
+---
+
+## Functions Added
+
+All functions that **compute**, **verify**, **store**, or **expose** checksums/hashes for backup integrity.
+
+### Client – calculation and sending
+
+| Path | Function / location | Role |
+|------|----------------------|------|
+| `fClient/fClient/sjbs/class1x.py` | `hash_file` | SHA-256 of whole file (chunk_size 128KB). |
+| `fClient/fClient/sjbs/class1x.py` | Backup flow (file_hasher, chunk_hash) | File hasher (SHA-256) over stream; chunk_hash = SHA-256 of compressed chunk; sets headers `chkh`, `filehash`. |
+| `fClient/fClient/sjbs/class2.py` | Backup flow (file_hasher, chunk_hash) | File hasher (SHA-256) over chunks; chunk_hash = SHA-256 of chunk; sets headers `chkh`, `filehash`. |
+| `fClient/fClient/unc/lans2.py` | Chunk upload paths | `chunk_hash = hashlib.sha256(encrypted_chunk).hexdigest()`; compare to `expected_hash` on verify. |
+| `fClient/fClient/xxh.py` | `_hash_file`, `hash_file`, `hash_folder` | File/folder hashing (xxhash or blake3) for integrity; `hash_file` used in flow. |
+| `fClient/fClient/module3.py` | Upload block | `file_hash = hashlib.sha256(file_data).hexdigest()`; sent as `hash`. |
+| `fClient/module13.py` | Upload block | `file_hash = hashlib.sha256(file_data).hexdigest()`; sent as `hash`. |
+
+### Client – verification (restore)
+
+| Path | Function / location | Role |
+|------|----------------------|------|
+| `fClient/fClient/views.py` | Restore / merge blocks | Builds `file_hasher = hashlib.sha256()`, compares `actual_file_hash` to `chunk_manifest["file_hash"]`. |
+
+### Client – GDrive (request Drive checksum)
+
+| Path | Function / location | Role |
+|------|----------------------|------|
+| `fClient/gd/GDClient.py` | `upload_file` | Requests `sha256Checksum` in `fields` so Drive returns checksum; client sends it to server in `gfidi`. |
+
+### Server – verification (upload_file)
+
+| Path | Function / location | Role |
+|------|----------------------|------|
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `upload_file` | Reads `chkh`, `filehash`; for non-GDrive: `computed_hash = hashlib.sha256(decompressed_chunk).hexdigest()` vs `chkh`; for GDrive: compares Drive `sha256Checksum` (from `gfidi`) to `chkh`; sets `checksum_mismatch` / `checksum_error` and logs `chunk_checksum_ok` / `chunk_checksum_failed`. |
+
+### Server – manifest (load/save hashes)
+
+| Path | Function / location | Role |
+|------|----------------------|------|
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `_load_manifest` | Loads manifest (contains `chunks` (seq → chunk hash), `file_hash`). |
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `_save_manifest` | Saves manifest with `chunk_hash`, `file_hash` per chunk. |
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `_manifest_folder` | `hashlib.sha256(value.encode("utf-8")).hexdigest()` for manifest folder path when value is JSON-like. |
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `save_temp` | Writes manifest: `manifest["chunks"][seq_num] = chunk_hash`, `manifest["file_hash"] = file_hash`. |
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `get_restore_data` | Returns restore data including `chunks` (hashes) and `file_hash`. |
+
+### Server – digest / hash API and helpers
+
+| Path | Function / location | Role |
+|------|----------------------|------|
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `calculate_file_digest` | Computes file digest (default SHA-512) in chunks; returns hex digest. |
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `calculate_file_digest_threaded` | Threaded wrapper for `calculate_file_digest` (e.g. MD5). |
+| `FlaskWebProject3/FlaskWebProject3/views.py` | `calculate_hash` | Route `/api/calculatehash`: calls `calculate_file_digest_threaded`. |
+| `FlaskWebProject3/FlaskWebProject3/views.py` | Restore/merge flows | `hash_function = hashlib.new("md5")`  for merged file; `file_code = hash_function.hexdigest()`. |
+
+### Server – cloud upload (checksum sent to cloud)
+
+| Path | Function / location | Role |
+|------|----------------------|------|
+| `FlaskWebProject3/awd/AWSClient.py` | `upload_data`, `upload_file` | Compute SHA-256 of payload, set `ChecksumSHA256` on S3 PutObject so S3 verifies at rest. |
+| `FlaskWebProject3/azd/AzureClient.py` | `upload_data`, `upload_file` | Compute MD5 of payload, set `Content-MD5` on blob upload so Azure verifies at rest. |
+

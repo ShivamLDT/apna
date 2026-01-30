@@ -123,22 +123,22 @@ class AzureBlobClient:
             content_md5 = bytearray(hashlib.md5(data).digest())
             content_settings = ContentSettings(content_type=content_type, content_md5=content_md5)
             for attempt in RETRY_LIMIT:
-                try: 
+                try:
                     blob_client.upload_blob(data, overwrite=True, content_settings=content_settings)
                     break
-                    except (ServiceRequestError, ServiceResponseError, socket.timeout) as e:
-                        print(f"[Network error] Retrying {e}")
-                    except HttpResponseError as e:
-                        print(f"[HTTP error] Chunk failed with status {e.status_code}")
-                        if e.status_code not in [500, 503]:  # not retryable
-                            raise
-                    except AzureError as e:
-                        print(f"[AzureError] Chunk failed: {e}")
-                        
-                    backoff = RETRY_BACKOFF_BASE ** attempt
-                    time.sleep(backoff)
-                else:
-                    raise Exception(f"Chunk failed after  retries")
+                except (ServiceRequestError, ServiceResponseError, socket.timeout) as e:
+                    print(f"[Network error] Retrying {e}")
+                except HttpResponseError as e:
+                    print(f"[HTTP error] Chunk failed with status {e.status_code}")
+                    if e.status_code not in [500, 503]:  # not retryable
+                        raise
+                except AzureError as e:
+                    print(f"[AzureError] Chunk failed: {e}")
+
+                backoff = RETRY_BACKOFF_BASE ** attempt
+                time.sleep(backoff)
+            else:
+                raise Exception(f"Chunk failed after  retries")
 
             logging.info(f"File '{file_name}' uploaded successfully")
             return file_name
