@@ -181,3 +181,19 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+# Archives / backups
+*.zip
+*.rar
+*.7z
+*.bak
+*.backup
+
+# Python
+venv/
+env/
+__pycache__/
+
+# Flask
+instance/
+*.db
+*.sqlite3
