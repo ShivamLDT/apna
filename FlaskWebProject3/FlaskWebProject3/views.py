@@ -4581,16 +4581,58 @@ def upload_file():
                 )
                 decompressed_chunk = compressed_chunk
     elif chunk_hash and decompressed_chunk == GD_DATA_BLOCK:
-        log_event(
-            logger,
-            logging.INFO,
-            job_id,
-            "backup",
-            file_path=file_name,
-            file_id=request.headers.get("fileid"),
-            chunk_index=seq_num,
-            extra={"event": "chunk_checksum_skipped", "reason": "gdrive_metadata_only"},
-        )
+        # GDrive: verify using Drive's sha256Checksum from gfidi when present
+        gfidi_raw = request.headers.get("gfidi", "")
+        drive_sha256 = None
+        if gfidi_raw:
+            try:
+                raw = gfidi_raw.decode("utf-8") if isinstance(gfidi_raw, bytes) else gfidi_raw
+                gfidi_obj = json.loads(raw) if raw else {}
+                drive_sha256 = (gfidi_obj.get("sha256Checksum") or "").strip()
+            except Exception:
+                pass
+        if drive_sha256:
+            client_chkh = (str(chunk_hash) or "").strip()
+            if client_chkh and (drive_sha256.lower() == client_chkh.lower()):
+                log_event(
+                    logger,
+                    logging.INFO,
+                    job_id,
+                    "backup",
+                    file_path=file_name,
+                    file_id=request.headers.get("fileid"),
+                    chunk_index=seq_num,
+                    extra={"event": "chunk_checksum_ok", "reason": "gdrive_sha256_match"},
+                )
+            else:
+                checksum_mismatch = True
+                checksum_error = "gdrive_sha256_mismatch"
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    job_id,
+                    "backup",
+                    file_path=file_name,
+                    file_id=request.headers.get("fileid"),
+                    chunk_index=seq_num,
+                    extra={
+                        "event": "chunk_checksum_failed",
+                        "reason": "gdrive_sha256_mismatch",
+                        "client_chkh": client_chkh[:16] + "..." if len(client_chkh) > 16 else client_chkh,
+                        "drive_sha256": drive_sha256[:16] + "..." if len(drive_sha256) > 16 else drive_sha256,
+                    },
+                )
+        else:
+            log_event(
+                logger,
+                logging.INFO,
+                job_id,
+                "backup",
+                file_path=file_name,
+                file_id=request.headers.get("fileid"),
+                chunk_index=seq_num,
+                extra={"event": "chunk_checksum_skipped", "reason": "gdrive_metadata_only"},
+            )
     try:
         del compressed_chunk
     except:

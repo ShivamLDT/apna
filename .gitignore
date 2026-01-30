@@ -152,11 +152,6 @@ Restore_*/
 inetpub*/
 NewRs*/
 
-# SMTP config (contains credentials)
-smtp_config.json
-
-# Client nodes tracking
-clientnodes.json
 
 # Temp/test files
 r.txt

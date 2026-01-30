@@ -303,7 +303,7 @@ class GDClient:
                     file = self.service.files().create(
                         body=file_metadata,
                         media_body=media,
-                        fields='id, name, mimeType, webViewLink'
+                        fields='id, name, mimeType, webViewLink, sha256Checksum'
                     ).execute()
                     print(file)
                     return file

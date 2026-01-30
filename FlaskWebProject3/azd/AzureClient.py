@@ -1,6 +1,7 @@
 
 import mimetypes
 #import os
+import hashlib
 import logging
 import socket
 import time
@@ -80,13 +81,14 @@ class AzureBlobClient:
             self.valid=False
 
     def upload_data(self, file_name, data, content_type=None):
-        """Uploads data directly to a blob."""
+        """Uploads data directly to a blob. Sets Content-MD5 so Azure verifies integrity at cloud (chunk complete)."""
         try:
             if content_type == None:
                 content_type="application/octet-stream"
             blob_client = self.container_client.get_blob_client(file_name)
-            content_settings = ContentSettings(content_type=content_type) if content_type else None
-            
+            # Integrity at cloud: Azure validates upload against this MD5; reject if mismatch
+            content_md5 = bytearray(hashlib.md5(data).digest())
+            content_settings = ContentSettings(content_type=content_type, content_md5=content_md5)
             for attempt in RETRY_LIMIT:
                 try: 
                     response =blob_client.upload_blob(data, overwrite=True, content_settings=content_settings)
@@ -112,16 +114,18 @@ class AzureBlobClient:
             return {"error": str(e)}
 
     def upload_file(self, file_path, file_name):
-        """Uploads a file to Azure Blob Storage."""
+        """Uploads a file to Azure Blob Storage. Sets Content-MD5 so Azure verifies integrity at cloud (chunk complete)."""
         try:
+            with open(file_path, "rb") as f:
+                data = f.read()
             blob_client = self.container_client.get_blob_client(file_name)
             content_type, _ = mimetypes.guess_type(file_path)
-            content_settings = ContentSettings(content_type=content_type) if content_type else None
-            with open(file_path, "rb") as data:
-                for attempt in RETRY_LIMIT:
-                    try: 
-                        blob_client.upload_blob(data, overwrite=True, content_settings=content_settings)
-                        break
+            content_md5 = bytearray(hashlib.md5(data).digest())
+            content_settings = ContentSettings(content_type=content_type, content_md5=content_md5)
+            for attempt in RETRY_LIMIT:
+                try: 
+                    blob_client.upload_blob(data, overwrite=True, content_settings=content_settings)
+                    break
                     except (ServiceRequestError, ServiceResponseError, socket.timeout) as e:
                         print(f"[Network error] Retrying {e}")
                     except HttpResponseError as e:

@@ -6,6 +6,8 @@ import io
 #import pickle
 import socket
 import time
+import base64
+import hashlib
 #from pydispatch import dispatcher
 import boto3
 import mimetypes
@@ -75,10 +77,14 @@ class S3Client:
             self.s3=None
 
     def upload_data(self, file_path,file_data, s3_key):
-        """Uploads a file using put_object and returns the file ETag (unique ID)."""
+        """Uploads a file using put_object and returns the file ETag (unique ID).
+        Sends ChecksumSHA256 so S3 verifies integrity of what is stored (chunk complete at cloud)."""
         try:
             content_type, _ = mimetypes.guess_type(file_path)
             extra_args = {'ContentType': content_type} if content_type else {}
+            # Integrity at cloud: S3 validates upload against this checksum; reject if mismatch
+            digest = hashlib.sha256(file_data).digest()
+            extra_args['ChecksumSHA256'] = base64.b64encode(digest).decode('utf-8')
             for attempt in RETRY_LIMIT:
                 try:
                     response = self.s3.put_object(Bucket=self.bucket_name, Key=s3_key, Body=file_data, **extra_args)            
@@ -108,14 +114,18 @@ class S3Client:
             return {"error": str(e)}
 
     def upload_file(self, file_path, s3_key, callback=None):
-        """Uploads a small file to S3"""
+        """Uploads a small file to S3. Uses put_object with ChecksumSHA256 so S3 verifies integrity at cloud."""
         try:
+            with open(file_path, "rb") as f:
+                body = f.read()
+            content_type, _ = mimetypes.guess_type(file_path)
+            extra_args = {'ContentType': content_type} if content_type else {}
+            digest = hashlib.sha256(body).digest()
+            extra_args['ChecksumSHA256'] = base64.b64encode(digest).decode('utf-8')
             for attempt in RETRY_LIMIT:
                 try:
-                    content_type, _ = mimetypes.guess_type(file_path)
-                    extra_args = {'ContentType': content_type} if content_type else {}
-                    self.s3.upload_file(file_path, self.bucket_name, s3_key, ExtraArgs=extra_args, Callback=callback)
-                    logging.info(f"File {s3_key} uploaded successfully")
+                    response = self.s3.put_object(Bucket=self.bucket_name, Key=s3_key, Body=body, **extra_args)
+                    logging.info(f"File {s3_key} uploaded successfully with ETag: {response.get('ETag', '')}")
                     return s3_key
                 except (EndpointConnectionError, ConnectionClosedError,ReadTimeoutError, IncompleteReadError, socket.timeout) as e:
                     print(f"[Network error] Part  retry {attempt}: {e}")
