@@ -1,0 +1,300 @@
+import os
+import sys
+import time
+import ctypes
+import pytsk3
+from tqdm import tqdm
+
+
+def search_disks():
+    """
+    Cherche les disques visible sur la machine et les affiche dans l'invite de commande.
+
+    :return
+        list: Liste des disques trouvés.
+        None: Si une erreur survient.
+    """
+    print("Disks present on the system...")
+    disks = []
+    for disk in range(10):  # On teste les disques \\.\PhysicalDrive0 à \\.\PhysicalDrive9
+        disk_path = f"\\\\.\\PhysicalDrive{disk}"
+        if os.path.exists(disk_path):  # On vérifie si le disque existe
+            disks.append(disk_path)
+            print(f"{len(disks)}. {disk_path}")
+    return disks
+
+
+def search_partitions(disque):
+    """
+    Cherche les partitions d'un disque donné.
+
+    :arg
+        disque (String): Le disque à analyser.
+
+    :return
+        list: Liste des partitions trouvées.
+        None: Si une erreur survient.
+    """
+    try:
+        image_disk = pytsk3.Img_Info(disque)
+        partition_table = pytsk3.Volume_Info(image_disk)
+        partitions = []
+        print(f'Scores present on the disk...')
+        for index, partition in enumerate(partition_table):
+            print(f'{index+1}: Start = {partition.start}, Taille = {partition.len}, Type = {partition.desc.decode()}')
+            partitions.append((partition.start, partition.len))
+        return partitions
+    except Exception as e:
+        print(f'Error reading partitions : {e}')
+
+
+def choose_disk(disks):
+    """
+    Asks the user to choose a disk.
+
+    :arg
+    disks (list): List of disks found.
+
+    :return
+    str: The chosen disk
+    """
+    choice = input(f"Choose a disk (1-{len(disks)}): ")
+    try:
+        index = int(choice) - 1
+        if 0 <= index < len(disks):
+            return disks[index]
+        else:
+            print("Choix non valide.")
+            return choose_disk(disks)
+    except ValueError:
+        print("Enter a valid number.")
+        return choose_disk(disks)
+
+
+def choose_partition(partitions):
+    """
+    Asks the user to choose a partition.
+
+    :arg
+        partitions (list): List of partitions found.
+
+    :return
+        tuple: The partition chosen
+    """
+    choice = input(f"Choose a partition (1-{len(partitions)}): ")
+    try:
+        index = int(choice) - 1
+        if 0 <= index < len(partitions):
+            return partitions[index]
+        else:
+            print("Invalid choice.")
+            return choose_partition(partitions)
+    except ValueError:
+        print("Please enter a valid number.")
+        return choose_partition(partitions)
+
+
+def read_partition(disk, partition, strict=True):
+    """
+          Opens the disk image at the offset of the chosen partition and reads the deleted files before returning them in
+          a liste
+
+    :arg
+        disk (str): The disk to analyze
+        partition (tuple): The partition to analyze
+        strict (bool): If True, we only take "ordinary" files and those marked as "unallocated"
+
+    :return
+          list: List of deleted files
+          None: If an error occurs
+    """
+    deleted_files = []
+    try:
+        print(f'Reading score {score[0]}...')
+        img_info = pytsk3.Img_Info(disk)
+        partition_offset = partition[0] * 512  # Multiplie par 512 car l'offset est en secteurs
+        fs_info = pytsk3.FS_Info(img_info, offset=partition_offset)
+        # Lecture des fichiers supprimés
+        try:
+            root_directory = fs_info.open_dir(path="/")
+            total_files = sum(1 for _ in root_directory)
+
+            root_directory = fs_info.open_dir(path="/")
+            with tqdm(total=total_files, desc="Search for deleted files", unit=" file") as pbar:
+                for inode in root_directory:
+                    # Si est un fichier ou un dossier
+                    if inode.info.meta:
+                        # On ne veut que les fichiers ordinaire (pas de répertoire ou autre type spécial) et qu'il est marqué comme "non alloué"
+                        if strict:
+                            if inode.info.meta.type == pytsk3.TSK_FS_META_TYPE_REG and inode.info.meta.flags & pytsk3.TSK_FS_META_FLAG_UNALLOC:
+                                deleted_files.append(inode)
+                        # On prend tout types de fichiers "non alloué"
+                        else:
+                            if inode.info.meta.flags & pytsk3.TSK_FS_META_FLAG_UNALLOC:
+                                deleted_files.append(inode)
+                    pbar.update(1)
+            return deleted_files
+        except Exception as e:
+            print(f'Erreur lors de l\'analyse des fichiers supprimés: {e}')
+            return None
+    except Exception as e:
+        print(f"Erreur lors de la lecture de la partition: {e}")
+        return None
+
+
+def choose_files_to_restore(deleted_files):
+    """
+    Demande à l'utilisateur de choisir les fichiers à restaurer
+
+    :arg
+        deleted_files (list): Liste des fichiers supprimés
+
+    :return
+        list: Liste des fichiers à restaurer
+        None: Si l'utilisateur annule
+    """
+    files_to_restore = []
+
+    time.sleep(0.25)
+    print('Choose the index of the file(s) to restore')
+    for index, file in enumerate(deleted_files):
+        print(index +" : " + file.info.name.name.decode('utf-8'))
+
+    while True:
+        choice = int(input("Enter the index to add the desired file | Select All: -1 | Continue: -2 | Cancel: -3: "))
+        if choice == -1:
+            return deleted_files
+        # On soumet la liste de fichiers à restaurer
+        elif choice == -2:
+            return files_to_restore
+        # On annule
+        elif choice == -3:
+            return None
+        # On ajoute à la liste indice correct et si n'est pas déjà présent
+        elif 0 <= choice < len(deleted_files):
+            if deleted_files[choice] not in files_to_restore:
+                files_to_restore.append(deleted_files[choice])
+                print("Fichier " + deleted_files[choice].info.name.name.decode('utf-8') + " ajouté à la liste")
+
+
+def restore_file(files_to_restore, chosed_disk, chosed_part):
+    """
+    Restaure les fichiers sélectionnés dans un répertoire spécifique
+
+    :arg
+        files_to_restore (list): Liste des fichiers à restaurer
+        chosed_disk (str): Disque choisi
+        chosed_part (tuple): Partition choisie
+
+    :return
+        None
+    """
+    # Création du répertoire "restored_files" s'il n'existe pas
+    restored_dir = os.path.join(os.getcwd(), 'restored_files')
+    if not os.path.exists(restored_dir):
+        os.makedirs(restored_dir)
+
+    print('Files to restore', end=': ')
+    for file in files_to_restore:
+        print(f'{file.info.name.name.decode("utf-8")}', end=', ')
+    print()
+    time.sleep(0.25)
+
+    success_cpt = 0
+    total_size = len(files_to_restore)
+    with tqdm(total=total_size, desc="Restoring files") as pbar:
+        for file in files_to_restore:
+            try:
+                inode_nb = file.info.meta.addr
+                file_name = file.info.name.name.decode('utf-8')
+                output_file_path = os.path.join(restored_dir, file_name)
+                # print(f'inode_nb: {inode_nb}, output: {output_file_path}')
+
+                image_disk = pytsk3.Img_Info(chosed_disk)
+                fs_info = pytsk3.FS_Info(image_disk, offset=chosed_part[0] * 512)
+                restore_file = fs_info.open_meta(inode_nb)
+
+                with open(output_file_path, 'wb') as output_file:
+                    file_size = restore_file.info.meta.size
+                    offset = 0
+                    while offset < file_size:
+                        available_to_read = min(1024*1024, file_size-offset)
+                        data = restore_file.read_random(offset, available_to_read)
+                        if not data:
+                            break
+                        output_file.write(data)
+                        offset += len(data)
+                        # success_cpt += 1
+
+            except Exception as e:
+                print("Error restoring file " +file.info.name.name.decode('utf-8') + " : " + e)
+            success_cpt += 1
+            pbar.update(1)
+
+        time.sleep(0.5)
+        print()
+        print(f'{success_cpt} file(s) successfully restored in directory: {os.getcwd()}\\restored_files')
+        os.startfile(restored_dir)
+
+
+def os_is_windows() -> bool:
+    """
+    Vérifie si le système d'exploitation est Windows
+
+    :return
+        True si Windows, False sinon
+    """
+    return False if sys.platform != "win32" else True
+
+
+def executed_as_admin() -> bool:
+    """
+    Vérifie si le programme est exécuté en tant qu'administrateur
+
+    :return
+        True si l'utilisateur est administrateur, False sinon
+    """
+    return True if ctypes.windll.shell32.IsUserAnAdmin() else False
+
+
+
+if __name__ == "__main__":
+
+    # Vérification de l'os et des privilèges administrateur
+    if os_is_windows() and not executed_as_admin():
+        print("This program requires administrator privileges to function properly.")
+        print("Please run the program as administrator.")
+        time.sleep(2)
+        sys.exit(1)
+
+
+    # Début du programme
+    print("Welcome to Cleaner Recovery!")
+    strict = True
+    while True:
+        choice = int(input('Menu:\n0: Scan deleted files.\n1: Options.\n2: Exit '))
+        if choice == 0:
+            disks = search_disks()
+            if disks is not None:
+                chosed_disk = choose_disk(disks)
+                print(f"Disque choisi: {chosed_disk}")
+                partitions = search_partitions(chosed_disk)
+                if partitions is not None:
+                    chosed_part = choose_partition(partitions)
+                    print(f'Partition choisie: {chosed_part}.')
+                    deleted_files = read_partition(chosed_disk, chosed_part, strict)
+                    files_to_restore = choose_files_to_restore(deleted_files)
+                    if files_to_restore is not None:
+                        restore_file(files_to_restore, chosed_disk, chosed_part)
+        elif choice == 1:
+            print(f'Options:')
+            strict_value = int(input(f'Reading "ordinary" files when scanning deleted files? Current: {strict}({int(strict)})'))
+            if strict_value == 0:
+                strict = False
+            elif strict_value == 1:
+                strict = True
+            else:
+                continue
+            print(f'Option set to {strict}')
+        elif choice == 2:
+            break

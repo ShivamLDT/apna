@@ -1,0 +1,459 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>48070c2a-2d89-44e7-b8b2-4490b3898f1f</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <ProjectTypeGuids>{789894c7-04a9-4a11-a6b5-3f4435165112};{1b580a1a-fdb3-4b32-83e1-6407eb2722e6};{349c5851-65df-11da-9384-00065b846f21};{888888a0-9f3d-457c-b088-3a5042f75d52}</ProjectTypeGuids>
+    <StartupFile>runserver.py</StartupFile>
+    <SearchPath>
+    </SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <LaunchProvider>Web launcher</LaunchProvider>
+    <WebBrowserUrl>http://localhost</WebBrowserUrl>
+    <OutputPath>.</OutputPath>
+    <SuppressCollectPythonCloudServiceFiles>true</SuppressCollectPythonCloudServiceFiles>
+    <Name>FlaskWebProject3</Name>
+    <RootNamespace>FlaskWebProject3</RootNamespace>
+    <InterpreterId>MSBuild|env|$(MSBuildProjectFullPath)</InterpreterId>
+    <SuppressPackageInstallationPrompt>True</SuppressPackageInstallationPrompt>
+    <IsWindowsApplication>False</IsWindowsApplication>
+    <Environment>FLASK_ENV="development" , PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT =5</Environment>
+    <PythonRunWebServerCommandEnvironment>FLASK_ENV="development"</PythonRunWebServerCommandEnvironment>
+    <PythonDebugWebServerCommandEnvironment>FLASK_ENV="development"</PythonDebugWebServerCommandEnvironment>
+    <PythonDebugWebServerCommand>
+    </PythonDebugWebServerCommand>
+    <PythonDebugWebServerCommandArguments>
+    </PythonDebugWebServerCommandArguments>
+    <CommandLineArguments>--host 192.168.2.15 --user admin --password Server123 --share public list</CommandLineArguments>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="adebug.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="awd\AWSClient.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="awd\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="azd\AzureClient.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="azd\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="class1.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="config_management\config_handler.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="config_management\config_loader.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="config_management\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fingerprint.py" />
+    <Compile Include="FlaskWebProject3\analytics\views.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\analytics\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\BackupServices.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\chat\views.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\csystemreport.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\cm\cm.py" />
+    <Compile Include="FlaskWebProject3\cm\__init__.py" />
+    <Compile Include="FlaskWebProject3\jobdata.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\live_data\views.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\notifications\views.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\notifications\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\live_data\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\chat\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\file_helpers.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\helpers\__init__.py" />
+    <Compile Include="FlaskWebProject3\module4.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\rekuests\rekuests.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\rekuests\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\scores\views.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\scores\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\sfx.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\shared_data.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\sqlite_manager.py" />
+    <Compile Include="FlaskWebProject3\sqlite_managerA.py" />
+    <Compile Include="FlaskWebProject3\unc\lans.py" />
+    <Compile Include="FlaskWebProject3\unc\lans2.py" />
+    <Compile Include="FlaskWebProject3\unc\__init__.py" />
+    <Compile Include="gd\GDClient.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="gd\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ipbrd\IPBrd.py" />
+    <Compile Include="ipbrd\__init__.py" />
+    <Compile Include="key_management\key_handler.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="key_management\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="lans.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="linx\CLinx01.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="linx\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module1.py" />
+    <Compile Include="FlaskWebProject3\utils\__init__.py" />
+    <Compile Include="FlaskWebProject3\utils\dictops.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="FlaskWebProject3\socketio.py" />
+    <Compile Include="module11.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module12.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module13.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module14.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module15.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module16.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module17.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module18.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module19.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module2.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module20.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module21.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module22.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module23.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module24.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module25.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module26.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module27.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module28.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module29.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module30.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module4.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module5.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module6.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module7.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module8.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module9.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="onedrive\OneDriveClient.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="onedrive\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="reactapp\reactapp.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="reactapp\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="scores\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="setup.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="runserver.py" />
+    <Compile Include="FlaskWebProject3\__init__.py" />
+    <Compile Include="FlaskWebProject3\views.py" />
+    <Compile Include="schedule.txt" />
+    <Compile Include="shInprocess.py" />
+    <Compile Include="shOutProcess.py" />
+    <Compile Include="WinNTP\sync_time.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="WinNTP\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="awd\" />
+    <Folder Include="azd\" />
+    <Folder Include="config_management\" />
+    <Folder Include="FlaskWebProject3\" />
+    <Folder Include="FlaskWebProject3\actapp\" />
+    <Folder Include="FlaskWebProject3\actapp\static\" />
+    <Folder Include="FlaskWebProject3\actapp\static\css\" />
+    <Folder Include="FlaskWebProject3\actapp\static\js\" />
+    <Folder Include="FlaskWebProject3\analytics\" />
+    <Folder Include="FlaskWebProject3\chat\" />
+    <Folder Include="FlaskWebProject3\cm\" />
+    <Folder Include="FlaskWebProject3\live_data\" />
+    <Folder Include="FlaskWebProject3\notifications\" />
+    <Folder Include="FlaskWebProject3\data\" />
+    <Folder Include="FlaskWebProject3\helpers\" />
+    <Folder Include="FlaskWebProject3\rekuests\" />
+    <Folder Include="FlaskWebProject3\scores\" />
+    <Folder Include="FlaskWebProject3\rapp\" />
+    <Folder Include="FlaskWebProject3\rapp\static\" />
+    <Folder Include="FlaskWebProject3\rapp\static\css\" />
+    <Folder Include="FlaskWebProject3\rapp\static\js\" />
+    <Folder Include="FlaskWebProject3\react-app\" />
+    <Folder Include="FlaskWebProject3\react-app\dist\" />
+    <Folder Include="FlaskWebProject3\react-app\dist\static\" />
+    <Folder Include="FlaskWebProject3\react-app\dist\static\css\" />
+    <Folder Include="FlaskWebProject3\reactapp\" />
+    <Folder Include="FlaskWebProject3\reactapp\dist\" />
+    <Folder Include="FlaskWebProject3\reactapp\dist\static\" />
+    <Folder Include="FlaskWebProject3\reactapp\dist\static\css\" />
+    <Folder Include="FlaskWebProject3\react-app\dist\static\js\" />
+    <Folder Include="FlaskWebProject3\unc\" />
+    <Folder Include="FlaskWebProject3\utils\" />
+    <Folder Include="FlaskWebProject3\static\" />
+    <Folder Include="FlaskWebProject3\static\content\" />
+    <Folder Include="FlaskWebProject3\static\fonts\" />
+    <Folder Include="FlaskWebProject3\static\scripts\" />
+    <Folder Include="FlaskWebProject3\templates\" />
+    <Folder Include="gd\" />
+    <Folder Include="ipbrd\" />
+    <Folder Include="key_management\" />
+    <Folder Include="linx\" />
+    <Folder Include="onedrive\" />
+    <Folder Include="reactapp\" />
+    <Folder Include="scores\" />
+    <Folder Include="WinNTP\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="FlaskWebProject3\actapp\asset-manifest.json" />
+    <Content Include="FlaskWebProject3\actapp\favicon.ico" />
+    <Content Include="FlaskWebProject3\actapp\index2.html" />
+    <Content Include="FlaskWebProject3\actapp\logo192.png" />
+    <Content Include="FlaskWebProject3\actapp\logo512.png" />
+    <Content Include="FlaskWebProject3\actapp\manifest.json" />
+    <Content Include="FlaskWebProject3\actapp\robots.txt" />
+    <Content Include="FlaskWebProject3\actapp\static\css\main.c6e016db.css" />
+    <Content Include="FlaskWebProject3\actapp\static\css\main.c6e016db.css.map" />
+    <Content Include="FlaskWebProject3\actapp\static\js\453.fc0d4aae.chunk.js" />
+    <Content Include="FlaskWebProject3\actapp\static\js\453.fc0d4aae.chunk.js.map" />
+    <Content Include="FlaskWebProject3\actapp\static\js\main.5073e610.js" />
+    <Content Include="FlaskWebProject3\actapp\static\js\main.5073e610.js.LICENSE.txt" />
+    <Content Include="FlaskWebProject3\actapp\static\js\main.5073e610.js.map" />
+    <Content Include="FlaskWebProject3\data\BackupProfiles - Copy.json" />
+    <Content Include="FlaskWebProject3\data\BackupProfiles.json" />
+    <Content Include="FlaskWebProject3\rapp\3hslogoo.png" />
+    <Content Include="FlaskWebProject3\rapp\asset-manifest.json" />
+    <Content Include="FlaskWebProject3\rapp\favicon.ico" />
+    <Content Include="FlaskWebProject3\rapp\index.html" />
+    <Content Include="FlaskWebProject3\rapp\logo192.png" />
+    <Content Include="FlaskWebProject3\rapp\logo3hs.png" />
+    <Content Include="FlaskWebProject3\rapp\logo512.png" />
+    <Content Include="FlaskWebProject3\rapp\manifest.json" />
+    <Content Include="FlaskWebProject3\rapp\robots.txt" />
+    <Content Include="FlaskWebProject3\rapp\static\css\main.5ceb3202.css" />
+    <Content Include="FlaskWebProject3\rapp\static\css\main.5ceb3202.css.map" />
+    <Content Include="FlaskWebProject3\rapp\static\js\787.27abac52.chunk.js" />
+    <Content Include="FlaskWebProject3\rapp\static\js\787.27abac52.chunk.js.map" />
+    <Content Include="FlaskWebProject3\rapp\static\js\main.e8ac5a5b.js" />
+    <Content Include="FlaskWebProject3\rapp\static\js\main.e8ac5a5b.js.LICENSE.txt" />
+    <Content Include="FlaskWebProject3\rapp\static\js\main.e8ac5a5b.js.map" />
+    <Content Include="FlaskWebProject3\react-app\dist\3hslogoo.png" />
+    <Content Include="FlaskWebProject3\react-app\dist\asset-manifest.json" />
+    <Content Include="FlaskWebProject3\react-app\dist\favicon.ico" />
+    <Content Include="FlaskWebProject3\react-app\dist\index.html" />
+    <Content Include="FlaskWebProject3\react-app\dist\logo192.png" />
+    <Content Include="FlaskWebProject3\react-app\dist\logo3hs.png" />
+    <Content Include="FlaskWebProject3\react-app\dist\logo512.png" />
+    <Content Include="FlaskWebProject3\react-app\dist\manifest.json" />
+    <Content Include="FlaskWebProject3\react-app\dist\robots.txt" />
+    <Content Include="FlaskWebProject3\react-app\dist\static\js\787.27abac52.chunk.js" />
+    <Content Include="FlaskWebProject3\react-app\dist\static\js\787.27abac52.chunk.js.map" />
+    <Content Include="FlaskWebProject3\react-app\dist\static\js\main.e8ac5a5b.js" />
+    <Content Include="FlaskWebProject3\react-app\dist\static\js\main.e8ac5a5b.js.LICENSE.txt" />
+    <Content Include="FlaskWebProject3\react-app\dist\static\js\main.e8ac5a5b.js.map" />
+    <Content Include="libman.json" />
+    <Content Include="requirements.txt" />
+    <Content Include="FlaskWebProject3\static\content\bootstrap.css" />
+    <Content Include="FlaskWebProject3\static\content\bootstrap.min.css" />
+    <Content Include="FlaskWebProject3\static\content\site.css" />
+    <Content Include="FlaskWebProject3\static\fonts\glyphicons-halflings-regular.eot" />
+    <Content Include="FlaskWebProject3\static\fonts\glyphicons-halflings-regular.svg" />
+    <Content Include="FlaskWebProject3\static\fonts\glyphicons-halflings-regular.ttf" />
+    <Content Include="FlaskWebProject3\static\fonts\glyphicons-halflings-regular.woff" />
+    <Content Include="FlaskWebProject3\static\scripts\bootstrap.js" />
+    <Content Include="FlaskWebProject3\static\scripts\bootstrap.min.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery-1.10.2.intellisense.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery-1.10.2.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery-1.10.2.min.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery-1.10.2.min.map" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery.validate-vsdoc.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery.validate.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery.validate.min.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery.validate.unobtrusive.js" />
+    <Content Include="FlaskWebProject3\static\scripts\jquery.validate.unobtrusive.min.js" />
+    <Content Include="FlaskWebProject3\static\scripts\modernizr-2.6.2.js" />
+    <Content Include="FlaskWebProject3\static\scripts\respond.js" />
+    <Content Include="FlaskWebProject3\static\scripts\respond.min.js" />
+    <Content Include="FlaskWebProject3\static\scripts\_references.js" />
+    <Content Include="FlaskWebProject3\templates\about.html" />
+    <Content Include="FlaskWebProject3\templates\contact.html" />
+    <Content Include="FlaskWebProject3\templates\index.html" />
+    <Content Include="FlaskWebProject3\templates\layout.html" />
+    <Content Include="server_Ver.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Interpreter Include="env3_6_32bit\">
+      <Id>env3_6_32bit</Id>
+      <Version>3.6</Version>
+      <Description>env3_6_32bit (Python 3.6 (32-bit))</Description>
+      <InterpreterPath>Scripts\python.exe</InterpreterPath>
+      <WindowsInterpreterPath>Scripts\pythonw.exe</WindowsInterpreterPath>
+      <PathEnvironmentVariable>PYTHONPATH</PathEnvironmentVariable>
+      <Architecture>X86</Architecture>
+    </Interpreter>
+    <Interpreter Include="env\">
+      <Id>env</Id>
+      <Version>3.11</Version>
+      <Description>env (Python 3.11 (64-bit))</Description>
+      <InterpreterPath>Scripts\python.exe</InterpreterPath>
+      <WindowsInterpreterPath>Scripts\pythonw.exe</WindowsInterpreterPath>
+      <PathEnvironmentVariable>PYTHONPATH</PathEnvironmentVariable>
+      <Architecture>X64</Architecture>
+    </Interpreter>
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.Web.targets" />
+  <!-- Specify pre- and post-build commands in the BeforeBuild and 
+       AfterBuild targets below. -->
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  <ProjectExtensions>
+    <VisualStudio>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
+        <WebProjectProperties>
+          <AutoAssignPort>True</AutoAssignPort>
+          <UseCustomServer>True</UseCustomServer>
+          <CustomServerUrl>http://localhost</CustomServerUrl>
+          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
+        </WebProjectProperties>
+      </FlavorProperties>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}" User="">
+        <WebProjectProperties>
+          <StartPageUrl>
+          </StartPageUrl>
+          <StartAction>CurrentPage</StartAction>
+          <AspNetDebugging>True</AspNetDebugging>
+          <SilverlightDebugging>False</SilverlightDebugging>
+          <NativeDebugging>False</NativeDebugging>
+          <SQLDebugging>False</SQLDebugging>
+          <ExternalProgram>
+          </ExternalProgram>
+          <StartExternalURL>
+          </StartExternalURL>
+          <StartCmdLineArguments>
+          </StartCmdLineArguments>
+          <StartWorkingDirectory>
+          </StartWorkingDirectory>
+          <EnableENC>False</EnableENC>
+          <AlwaysStartWebServerOnDebug>False</AlwaysStartWebServerOnDebug>
+        </WebProjectProperties>
+      </FlavorProperties>
+    </VisualStudio>
+  </ProjectExtensions>
+</Project>

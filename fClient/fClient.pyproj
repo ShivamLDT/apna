@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>856f9f58-5469-4d87-ac9a-6b8109e2455b</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <ProjectTypeGuids>{789894c7-04a9-4a11-a6b5-3f4435165112};{1b580a1a-fdb3-4b32-83e1-6407eb2722e6};{349c5851-65df-11da-9384-00065b846f21};{888888a0-9f3d-457c-b088-3a5042f75d52}</ProjectTypeGuids>
+    <StartupFile>runserver.py</StartupFile>
+    <SearchPath>
+    </SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <LaunchProvider>Web launcher</LaunchProvider>
+    <WebBrowserUrl>http://localhost</WebBrowserUrl>
+    <OutputPath>.</OutputPath>
+    <SuppressCollectPythonCloudServiceFiles>true</SuppressCollectPythonCloudServiceFiles>
+    <Name>fClient</Name>
+    <RootNamespace>fClient</RootNamespace>
+    <InterpreterId>MSBuild|env|D:\pyrepos\FlaskWebProject3\FlaskWebProject3\FlaskWebProject3.pyproj</InterpreterId>
+    <SuppressPackageInstallationPrompt>True</SuppressPackageInstallationPrompt>
+    <CommandLineArguments>192.168.2.253 kuldeep dell Admin@123 --operation upload --files C:\appverifUI.dll "C:\Program Files\7-Zip\License.txt" --remote-folder subfolder4</CommandLineArguments>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+    <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="adebug.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="appmonitor1.py" />
+    <Compile Include="config_management\config_handler.py" />
+    <Compile Include="config_management\config_loader.py" />
+    <Compile Include="config_management\__init__.py" />
+    <Compile Include="ddd.py" />
+    <Compile Include="drives.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\cm\cm.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\cm\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\defaultResponse.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\FilesUtil.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\fingerprint.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\gzpks\class1.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\ipbrd\IP_Brd.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\ipbrd\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\JobProfiles.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\module2.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\module3.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\module5.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\modules1.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\cktio.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\gzpks\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\p7zstd.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\shad.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\sjbs\class1x.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\sjbs\class2.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\sjbs\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\sktiof.py" />
+    <Compile Include="fClient\sqlite_managerA.py" />
+    <Compile Include="fClient\unc\lans.py" />
+    <Compile Include="fClient\unc\lans2.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\unc\smbwrapper.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\unc\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="fClient\xxh.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="gd\GDClient.py" />
+    <Compile Include="gd\__init__.py" />
+    <Compile Include="key_management\key_handler.py" />
+    <Compile Include="key_management\__init__.py" />
+    <Compile Include="module10.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module11.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module12.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module13.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module14.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module15.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module16.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module17.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module18.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module19.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module2.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module20.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module21.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module22.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module23.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module24.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module25.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module26.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module3.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module4.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module5.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module6.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module7.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module8.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="module9.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="quickstart.py" />
+    <Compile Include="runserver - Copy.py" />
+    <Compile Include="runserver.py" />
+    <Compile Include="fClient\__init__.py" />
+    <Compile Include="fClient\views.py" />
+    <Compile Include="sh.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="wafoldfil\module1.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="wafoldfil\module2.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="wafoldfil\USN_Journal_module.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="wafoldfil\wdo.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="wafoldfil\__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="WinNTP\sync_time.py" />
+    <Compile Include="WinNTP\__init__.py" />
+    <Compile Include="xwx__init__.epy" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="config_management\" />
+    <Folder Include="fClient\" />
+    <Folder Include="fClient\cm\" />
+    <Folder Include="fClient\gzpks\" />
+    <Folder Include="fClient\ipbrd\" />
+    <Folder Include="fClient\sjbs\" />
+    <Folder Include="fClient\static\" />
+    <Folder Include="fClient\static\content\" />
+    <Folder Include="fClient\static\fonts\" />
+    <Folder Include="fClient\static\scripts\" />
+    <Folder Include="fClient\templates\" />
+    <Folder Include="fClient\unc\" />
+    <Folder Include="gd\" />
+    <Folder Include="key_management\" />
+    <Folder Include="wafoldfil\" />
+    <Folder Include="WinNTP\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="ChunkUploader.cpp" />
+    <Content Include="ChunkUploader.h" />
+    <Content Include="clientVer.txt" />
+    <Content Include="requirements.txt" />
+    <Content Include="fClient\static\content\bootstrap.css" />
+    <Content Include="fClient\static\content\bootstrap.min.css" />
+    <Content Include="fClient\static\content\site.css" />
+    <Content Include="fClient\static\fonts\glyphicons-halflings-regular.eot" />
+    <Content Include="fClient\static\fonts\glyphicons-halflings-regular.svg" />
+    <Content Include="fClient\static\fonts\glyphicons-halflings-regular.ttf" />
+    <Content Include="fClient\static\fonts\glyphicons-halflings-regular.woff" />
+    <Content Include="fClient\static\scripts\bootstrap.js" />
+    <Content Include="fClient\static\scripts\bootstrap.min.js" />
+    <Content Include="fClient\static\scripts\jquery-1.10.2.intellisense.js" />
+    <Content Include="fClient\static\scripts\jquery-1.10.2.js" />
+    <Content Include="fClient\static\scripts\jquery-1.10.2.min.js" />
+    <Content Include="fClient\static\scripts\jquery-1.10.2.min.map" />
+    <Content Include="fClient\static\scripts\jquery.validate-vsdoc.js" />
+    <Content Include="fClient\static\scripts\jquery.validate.js" />
+    <Content Include="fClient\static\scripts\jquery.validate.min.js" />
+    <Content Include="fClient\static\scripts\jquery.validate.unobtrusive.js" />
+    <Content Include="fClient\static\scripts\jquery.validate.unobtrusive.min.js" />
+    <Content Include="fClient\static\scripts\modernizr-2.6.2.js" />
+    <Content Include="fClient\static\scripts\respond.js" />
+    <Content Include="fClient\static\scripts\respond.min.js" />
+    <Content Include="fClient\static\scripts\_references.js" />
+    <Content Include="fClient\templates\about.html" />
+    <Content Include="fClient\templates\contact.html" />
+    <Content Include="fClient\templates\index.html" />
+    <Content Include="fClient\templates\layout.html" />
+    <Content Include="TextFile1.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <InterpreterReference Include="MSBuild|env|D:\PyRepos\FlaskWebProject3\FlaskWebProject3\FlaskWebProject3.pyproj" />
+    <InterpreterReference Include="MSBuild|env|D:\pyrepos\FlaskWebProject3\FlaskWebProject3\FlaskWebProject3.pyproj" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.Web.targets" />
+  <!-- Specify pre- and post-build commands in the BeforeBuild and 
+       AfterBuild targets below. -->
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  <ProjectExtensions>
+    <VisualStudio>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
+        <WebProjectProperties>
+          <AutoAssignPort>True</AutoAssignPort>
+          <UseCustomServer>True</UseCustomServer>
+          <CustomServerUrl>http://localhost</CustomServerUrl>
+          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
+        </WebProjectProperties>
+      </FlavorProperties>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}" User="">
+        <WebProjectProperties>
+          <StartPageUrl>
+          </StartPageUrl>
+          <StartAction>CurrentPage</StartAction>
+          <AspNetDebugging>True</AspNetDebugging>
+          <SilverlightDebugging>False</SilverlightDebugging>
+          <NativeDebugging>False</NativeDebugging>
+          <SQLDebugging>False</SQLDebugging>
+          <ExternalProgram>
+          </ExternalProgram>
+          <StartExternalURL>
+          </StartExternalURL>
+          <StartCmdLineArguments>
+          </StartCmdLineArguments>
+          <StartWorkingDirectory>
+          </StartWorkingDirectory>
+          <EnableENC>False</EnableENC>
+          <AlwaysStartWebServerOnDebug>False</AlwaysStartWebServerOnDebug>
+        </WebProjectProperties>
+      </FlavorProperties>
+    </VisualStudio>
+  </ProjectExtensions>
+</Project>

@@ -1,0 +1,7 @@
+#1,ping yahoo.com -t -4,25,seconds
+#2,ping infosys.com -t -4,1,minutes
+#3,ping tcs.com -t -4,2,hours
+#4,ping 3handkshake.com -t -4,1,daily
+#5,ping amazon.com -t -4,3,weekly
+#6,ping investing.com -t -4,15,monthly
+#7,ping flipcart.com -t -4,1,yearly

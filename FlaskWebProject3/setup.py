@@ -1,0 +1,30 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="FlaskWebProject3",
+    version="0.1",
+    packages=find_packages(),
+    install_requires=[
+        "altgraph==0.17.4",
+        "blinker==1.7.0",
+        "certifi==2024.2.2",
+        "charset-normalizer==3.3.2",
+        "click==8.1.7",
+        "colorama==0.4.6",
+        "Flask==3.0.2",
+        "Flask-Cors==4.0.0",
+        "idna==3.6",
+        "itsdangerous==2.1.2",
+        "Jinja2==3.1.3",
+        "MarkupSafe==2.1.5",
+        "packaging==23.2",
+        "pefile==2023.2.7",
+        "pyinstaller==6.3.0",
+        "pyinstaller-hooks-contrib==2024.0",
+        "pywin32-ctypes==0.2.2",
+        "requests==2.31.0",
+        "requests-toolbelt==1.0.0",
+        "urllib3==2.2.0",
+        "Werkzeug==3.0.1",
+    ],
+)

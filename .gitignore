@@ -1,0 +1,183 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# =========================
+# Virtual Environments
+# =========================
+.venv/
+venv/
+ENV/
+env/
+envabserver/
+.env
+
+# =========================
+# Visual Studio / PyTools
+# =========================
+*.pyproj.user
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+obj/
+bin/
+*.pyperf
+
+# =========================
+# PyInstaller
+# =========================
+# Spec files can be kept, but build artifacts should be ignored
+*.manifest
+*.spec
+_MEI*/
+
+# =========================
+# Credentials & Secrets
+# =========================
+*_credentials.enc
+*.enc
+client_secret*.json
+token.pickle
+*.pem
+*.key
+secrets.json
+.env
+.env.*
+
+# =========================
+# Database
+# =========================
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.mdf
+*.ldf
+*-shm
+*-wal
+sessions.db*
+tokenSpecs.db
+instance/
+
+# Hash-named fingerprint databases and files
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*
+
+# =========================
+# Logs
+# =========================
+*.log
+DvlErrLog.txt
+logs/
+abf.log
+LAN*.log
+
+# =========================
+# IDE / Editor
+# =========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# =========================
+# OS Generated
+# =========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# =========================
+# Project Specific
+# =========================
+# Vulnerability/license files (if sensitive)
+*.vul
+*.rara
+
+# Flask instance folder
+instance/
+
+# Large executables (PyInstaller builds)
+*.exe
+
+# UUID-named temp/working directories
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*/
+
+# Job tracking files
+*_failed_jobs.json
+*_success_jobs.json
+
+# Monitor/temp logs
+monitor_log.txt
+every_logs/
+
+# Backup/restore directories (contain user data)
+backup_dir/
+client_cache/
+downloads/
+C[[DRIVE]]/
+Restore_*/
+inetpub*/
+NewRs*/
+
+# SMTP config (contains credentials)
+smtp_config.json
+
+# Client nodes tracking
+clientnodes.json
+
+# Temp/test files
+r.txt
+*.txt.tmp
+test_*.txt
+New Text Document.txt
+
+# Pytest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Cython debug symbols
+cython_debug/

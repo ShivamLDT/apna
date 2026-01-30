@@ -1,0 +1,66 @@
+{
+  "jobs": [
+    {
+      "agentName": "OP",
+      "data": [
+        { "time": "10:00", "value1": 45, "value2": 50 },
+        { "time": "10:55", "value1": 75, "value2": 85 }
+      ]
+    },
+
+        {
+      "agentName": "OP",
+      "data": [
+        { "time": "10:00", "value1": 45, "value2": 58 },
+        { "time": "10:55", "value1": 75, "value2": 85 }
+      ]
+    },
+
+    
+        {
+      "agentName": "OP",
+      "data": [
+        { "time": "10:08", "value1": 45, "value2": 59 },
+        { "time": "10:55", "value1": 75, "value2": 85 }
+      ]
+    },
+
+    
+        {
+      "agentName": "OP",
+      "data": [
+        { "time": "10:15", "value1": 45, "value2": 59 },
+        { "time": "10:55", "value1": 75, "value2": 85 }
+      ]
+    },
+    {
+      "agentName": "Ram",
+      "data": [
+        { "time": "09:00", "value1": 65, "value2": 70 },
+        { "time": "10:20", "value1": 80, "value2": 90 }
+      ]
+    },
+
+      {
+      "agentName": "Ram",
+      "data": [
+        { "time": "09:00", "value1": 65, "value2": 75 },
+        { "time": "10:20", "value1": 80, "value2": 90 }
+      ]
+    },
+    {
+      "agentName": "Shyam",
+      "data": [
+        { "time": "11:00", "value1": 55, "value2": 65 },
+        { "time": "12:00", "value1": 70, "value2": 80 }
+      ]
+    },
+    {
+      "agentName": "Raju",
+      "data": [
+        { "time": "01:30", "value1": 60, "value2": 75 },
+        { "time": "02:15", "value1": 85, "value2": 95 }
+      ]
+    }
+  ]
+}

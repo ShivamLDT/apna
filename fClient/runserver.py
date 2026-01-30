@@ -1,0 +1,3309 @@
+# 
+# This script runs the fClient application using a development server.
+# 
+
+from argparse import Namespace
+from ast import Try
+from asyncio import SubprocessProtocol
+import asyncio
+import atexit
+from concurrent.futures import ThreadPoolExecutor,as_completed
+import datetime
+from http import client
+import json
+import logging
+from msilib import UuidCreate
+from multiprocessing.pool import ThreadPool
+from os import environ
+import os.path
+from pathlib import Path
+import shutil
+from ssl import SSLContext
+import string
+from sys import exception
+#import threading
+import threading
+from time import sleep
+import time
+from timeit import Timer
+from tkinter import FALSE, TRUE, W
+from turtle import done, window_height
+from typing import Any
+from uu import Error
+import uuid
+from zipfile import ZipFile
+
+# from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from apscheduler.events import EVENT_ALL_JOBS_REMOVED, EVENT_JOB_ADDED, EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED, EVENT_JOB_MODIFIED, EVENT_JOB_REMOVED, EVENT_JOB_SUBMITTED, EVENT_SCHEDULER_PAUSED, EVENT_SCHEDULER_RESUMED, EVENT_SCHEDULER_SHUTDOWN, EVENT_SCHEDULER_STARTED
+from flask.ctx import AppContext
+from flask_apscheduler.utils import CronTrigger, DateTrigger
+from pytz import timezone
+from sqlalchemy import Column, exc, try_cast
+import sqlalchemy
+from sqlalchemy.orm import InstrumentedAttribute, declarative_base
+from sqlalchemy.sql.util import selectables_overlap
+from sqlalchemy.types import Float
+import websocket
+from websocket import create_connection, send
+import win32
+from win32api import SendMessage
+from WinNTP.sync_time import set_time_zone_and_enable_windows_time_sync
+from config_management.config_handler import load_config
+from fClient import app, modules1, sktiof
+# from zeroconf import Zeroconf, ServiceInfo
+from flask import Flask, request, jsonify, url_for, send_file
+import socket
+from flask_apscheduler import APScheduler
+from flask_sqlalchemy import SQLAlchemy
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from flask_cors import CORS
+
+
+from multiprocessing import freeze_support
+freeze_support()
+##############
+# import appmonitor1
+
+# from queue import Queue
+
+# task_queue = Queue(maxsize=1000)
+
+# # Start monitor at app startup
+# monitor = appmonitor1.AppMonitor(task_queue=task_queue, interval=5)
+##############
+from fClient import fingerprint
+from fClient.defaultResponse import post_process_context
+from fClient.sjbs.class1x import (create_custom_job,create_default_jobs,create_localbkp_job)
+from fClient.sjbs.class2 import create_uncbkp_job
+
+from fClient.sqlite_managerA import SQLiteManager
+
+# from sktiof import sktio
+cors = CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
+a_scheduler = None
+b_scheduler = None  
+c_scheduler = None  
+    
+
+import socketio
+import websocket
+import requests
+import os
+from fClient.fingerprint import getCode, getCodeHost, getCodea,getRequestKey,getKey,get_hKey
+
+
+import sys
+import os
+#import adebug 
+# app.config["getCode"]=getCode()
+# app.config["getCodea"]=getCodea()
+# app.config["getCodeHost"]=getCodeHost()
+# app.config["getKey"]=getKey()
+# app.config["getRequestKey"]=getRequestKey()
+# app.config["get_hKey"]=get_hKey() 
+
+app.config['JOB_METADATA'] = {}
+
+def create_database_thread():
+    requests.post(
+        "http://" + app.config["server_ip"] + ":" + str(app.config["server_port"]) + "/create_database",
+        json={"database_name": os.path.join("{{PATH}}", f"{app.config['getCode']}.db")},
+    )
+
+def run_ws_thread():
+    run_ws(r_clx=r_cl)
+
+from fClient.cktio import r_cl,cl_socketio_obj,run_ws, send_message
+import logging
+import uuid
+from requests.exceptions import (
+    SSLError, Timeout, ConnectionError,
+    TooManyRedirects, HTTPError, RequestException
+)
+
+DEBUG_MODE = os.getenv("AB_DEBUG", "0").lower() in {"1", "true", "yes", "on"}
+
+##kartik
+import logging
+import logging.handlers
+import os
+import sys
+
+os.makedirs("every_logs", exist_ok=True)
+LOG_FILE = "every_logs/client_error.log"
+
+logger = logging.getLogger("flask_app")
+logger.setLevel(logging.WARNING)
+logger.propagate = False  # IMPORTANT
+
+# -------- Formatter (file/console) --------
+default_formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] "
+    "[%(name)s:%(filename)s:%(funcName)s:%(lineno)d] "
+    "%(message)s"
+)
+
+# -------- File Handler --------
+if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
+    fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    fh.setLevel(logging.WARNING)
+    fh.setFormatter(default_formatter)
+    logger.addHandler(fh)
+
+# -------- Console Handler --------
+if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.WARNING)
+    ch.setFormatter(default_formatter)
+    logger.addHandler(ch)
+
+# -------- Windows Event Viewer --------
+try:
+    if not any(isinstance(h, logging.handlers.NTEventLogHandler) for h in logger.handlers):
+        eh = logging.handlers.NTEventLogHandler(appname="ABC")
+        eh.setLevel(logging.ERROR)
+
+        # Windows Event Viewer NEEDS single-line messages
+        eh.setFormatter(logging.Formatter(
+            "%(levelname)s: %(message)s"
+        ))
+        logger.addHandler(eh)
+except Exception:
+    logger.warning("Windows Event Log handler not available", exc_info=True)
+
+# -------- Flask / Werkzeug --------
+logging.getLogger("werkzeug").setLevel(logging.ERROR)
+logging.getLogger("flask.app").propagate = True
+logging.getLogger("flask.app").handlers = logger.handlers
+logging.getLogger("flask.app").setLevel(logging.WARNING)
+
+##kartik
+
+
+#following is commented by kudeep staarts here
+# _original = requests.sessions.Session.request
+
+# def patched_request(self, method, url, *args, **kwargs):
+#     logging.basicConfig(level=logging.INFO)
+#     print(f"[>>>>>>>>>>] {method} => {url}")
+#     trace_id = str(uuid.uuid4())
+#     logging.info(f"[{trace_id}] {method} → {url}")
+#     try:
+#         # Modify headers, redirect domains, etc., here
+#         headers = kwargs.setdefault("headers", {})
+#         headers["X-Trace-ID"] = trace_id
+#         return _original(self, method, url, *args, **kwargs)
+#     except SSLError as e:
+#         logging.error(f"[{trace_id}][SSL ERROR] {url}: {e}")
+#         raise
+#     except Timeout as e:
+#         logging.warning(f"[{trace_id}][TIMEOUT] {url}: {e}")
+#         raise
+#     except ConnectionError as e:
+#         logging.warning(f"[{trace_id}][CONNECTION ERROR] {url}: {e}")
+#         raise
+#     except TooManyRedirects as e:
+#         logging.warning(f"[{trace_id}][REDIRECT ERROR] {url}: {e}")
+#         raise
+#     except HTTPError as e:
+#         logging.warning(f"[{trace_id}][HTTP ERROR] {url}: {e.response.status_code} {e.response.reason}")
+#         raise
+#     except RequestException as e:
+#         logging.exception(f"[{trace_id}][REQUEST EXCEPTION] {url}: {e}")
+#         raise
+#     except Exception as e:
+#         logging.exception(f"[{trace_id}][REQUEST EXCEPTION] {url}: {e}")
+#         raise
+
+# requests.sessions.Session.request =  patched_request
+
+#above is commented by kudeep ends here
+
+def get_cleanup_temp_folder():
+    from glob import glob
+    """Get the path to the PyInstaller temporary folder based on the runtime directory."""
+    # Get the directory of the running executable
+    exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else None
+    
+    if exe_dir:
+        # Check for temp folders created by PyInstaller (usually named _MEIxxxxx)
+        temp_folders = glob(os.path.join(exe_dir, '_MEI*'))  # Matching PyInstaller temp folders
+        return temp_folders
+    return []
+
+def cleanup_temp_folder():
+    """Cleans up the PyInstaller temporary folder if it exists."""
+    temp_folders = get_cleanup_temp_folder()
+    
+    for temp_folder in temp_folders:
+        if os.path.exists(temp_folder):
+            try:
+                shutil.rmtree(temp_folder, ignore_errors=True)  # Remove the entire temp folder
+                print(f"Cleaned up temporary folder: {temp_folder}")
+            except Exception as e:
+                print(f"Error cleaning temp folder {temp_folder}: {e}")
+
+def get_mkcert_ca_root():
+    import subprocess
+    try:
+        # Run 'mkcert -CAROOT' to find mkcert CA root folder
+        result = subprocess.run(
+            ["mkcert", "-CAROOT"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        ca_root_folder = result.stdout.strip()
+        return os.path.join(ca_root_folder, "rootCA.pem")
+    except Exception as e:
+        print(f"Error detecting mkcert CA root: {e}")
+        return None
+
+def get_original_executable_path():
+    if getattr(sys, "frozen", False):
+        # For PyInstaller frozen executables
+        return sys.executable
+    else:
+        # For running the script directly
+        return os.path.abspath(__file__)
+
+
+def get_original_location():
+    exe_path = get_original_executable_path()
+    return os.path.dirname(os.path.realpath(exe_path))
+
+
+def SetUpEnv1():
+    import winreg
+    import sys
+
+    original_location = get_original_location()
+    print("Original location:", original_location)
+
+    app.config["location"] = original_location  # 6291466
+    app.config["exepath"] = get_original_executable_path()  # 6291466
+    app.config["Version"] ="26.1.12.1"
+    app.config["Version_S"] = 0
+
+    app.config["server"] = ""
+    os.environ["server"] = ""
+    app.config["serverversion"] ="26.1.12.1"
+
+    try:
+        import win32api
+
+        info = win32api.GetFileVersionInfo(app.config["exepath"], "\\")
+        version = f"{info['FileVersionMS'] >> 16}.{info['FileVersionMS'] & 0xffff}.{info['FileVersionLS'] >> 16}.{info['FileVersionLS'] & 0xffff}"
+        version_s = (
+            info["FileVersionMS"]
+            + info["FileVersionMS"]
+            + info["FileVersionLS"]
+            + info["FileVersionLS"]
+        )
+        app.config["Version"] = version
+        app.config["Version_S"] = version_s
+        app.config["Version_info"] = info
+    except Exception as dwww:
+        print("")
+
+def SetUpEnv():
+    import winreg
+    import sys
+
+    original_location = get_original_location()
+    print("Original location:", original_location)
+
+    app.config["location"] = original_location  # 6291466
+    app.config["exepath"] = get_original_executable_path()  # 6291466
+    app.config["Version"] ="26.1.12.1"
+    app.config["Version_S"] = 0
+
+    app.config["server"] = ""
+    os.environ["server"] = ""
+    app.config["serverversion"] ="26.1.12.1"
+
+    try:
+        import win32api
+
+        info = win32api.GetFileVersionInfo(app.config["exepath"], "\\")
+        version = f"{info['FileVersionMS'] >> 16}.{info['FileVersionMS'] & 0xffff}.{info['FileVersionLS'] >> 16}.{info['FileVersionLS'] & 0xffff}"
+        version_s = (
+            info["FileVersionMS"]
+            + info["FileVersionMS"]
+            + info["FileVersionLS"]
+            + info["FileVersionLS"]
+        )
+        app.config["Version"] = version
+        app.config["Version_S"] = version_s
+        app.config["Version_info"] = info
+    except Exception as dwww:
+        print("")
+
+    print(app.config["Version"])
+    print(app.config["Version_S"])
+    print(app.config["location"])
+    print(app.config["exepath"])
+
+    '''
+    key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    try:
+        reg_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(
+            reg_key, "ApnaBackup", 0, winreg.REG_SZ, os.path.abspath(sys.argv[0])
+        )
+        winreg.CloseKey(reg_key)
+        print("Added to startup successfully!")
+    except Exception as e:
+        print(e)
+
+    key = r"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion"
+    # Computer\HKEY_CURRENT_USER\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion
+    try:
+
+        reg_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_SET_VALUE)
+        key = r"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run"
+        winreg.CreateKey(winreg.HKEY_CURRENT_USER, key)
+        winreg.CloseKey(reg_key)
+        print("Added to startup successfully!")
+    except Exception as e:
+        print(e)
+
+    key = r"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Run"
+    try:
+        reg_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(
+            reg_key, "ApnaBackup", 0, winreg.REG_SZ, os.path.abspath(sys.argv[0])
+        )
+        winreg.CloseKey(reg_key)
+        print("Added to startup successfully!")
+    except Exception as e:
+        print(e)
+
+
+    import shutil
+
+    win_startup = os.path.join(
+        os.environ["APPDATA"],
+        "Microsoft",
+        "Windows",
+        "Start Menu",
+        "Programs",
+        "Startup",
+    )
+    shortcut = os.path.join(win_startup, "ApnaBackupClient.lnk")
+    try:
+        shutil.copyfile(os.path.abspath(sys.argv[0]), shortcut)
+        print("Shortcut created successfully in startup folder:", shortcut)
+    except Exception as e:
+        print("Failed to create shortcut:", e)
+    '''
+    
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "APNABACKUPEP")
+        print(value)
+        app.config["UPLOAD_FOLDER"] = value
+    except FileNotFoundError:
+        import psutil
+
+        pb = 1024 * 1024 * 1024
+        pb = pb * pb
+        pb = 0
+        ap = ""
+        partitions = psutil.disk_partitions(all=True)
+
+        for partition in partitions:
+            try:
+                if not is_google_drive(partition=partition):
+                    if (not partition.opts.__contains__("cdrom")) and (
+                        not partition.opts.__contains__("removable") > 0
+                    ):
+                        current_path = partition.mountpoint
+                        du = psutil.disk_usage(current_path)
+                        if du.free > pb:
+                            pb = du.free
+                            ap = current_path
+            except:
+                print("Drive access error")
+
+        apnaBackupDir = os.path.join(ap, "ApnaBackupEP")
+        app.config["UPLOAD_FOLDER"] = apnaBackupDir
+        try:
+            os.mkdir(apnaBackupDir)
+        except:
+            print("errr creating folder")
+        import winreg
+
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_WRITE
+            ) as key:
+                winreg.SetValueEx(
+                    key, "APNABACKUPEP", 0, winreg.REG_EXPAND_SZ, apnaBackupDir
+                )
+            os.environ["APNABACKUP"] = (
+                apnaBackupDir  # Update current process environment
+            )
+            return True
+        except Exception as e:
+            print("Error:", e)
+            return False
+        return False
+    except WindowsError:
+        print("Widow Error")
+        return False
+
+
+def is_google_drive(partition):
+    """Check if a given partition is Google Drive by using WMI."""
+    # import wmi
+
+    # c = wmi.WMI()
+    # # for p in c.Win32_DiskPartition():
+    # #     print(f"Partition: {p.DeviceID}")
+
+    # #     # Associating the partition with its disk drive
+    # #     for disk in p.associators("Win32_DiskDrive"):
+    # #         print(f"  Disk: {disk.DeviceID}, Model: {disk.Model}")
+
+    # #     # Associating the partition with its logical disk
+    # #     for logical_disk in p.associators("Win32_LogicalDisk"):
+    # #         print(f"  Logical Disk: {logical_disk.DeviceID}, File System: {logical_disk.FileSystem}")
+
+    # for disk in c.Win32_LogicalDisk():
+    #     if disk.DeviceID == partition.device:
+    #         # Check if the drive type is 4 (Network Drive)
+    #         if disk.DriveType == 4:
+    #             return True
+    return False
+
+@app.route("/clientreport")
+def clientreport():
+    return jsonify(generate_clientreport()), 200
+
+def generate_clientreport():
+    server_act_date =""
+    server_version = app.config.get("Version","n/a")
+    server_id = app.config.get("getCode","n/a")
+    connected_client_node_data= None
+    try:
+        connected_client_node_data = None
+    except:
+        connected_client_node_data= None
+        print("")
+    try:
+        import pytz
+        server_act_date= float(app.config['resj']['server']['activationDate3'])
+        date_format = "%d/%m/%Y, %I:%M:%S %p"
+        p = pytz.timezone("Asia/Kolkata")
+        import datetime;
+        #server_act_date = datetime.datetime.utcfromtimestamp(server_act_date).replace(tzinfo=p).strftime(date_format)
+        server_act_date = datetime.datetime.fromtimestamp(server_act_date).replace(tzinfo=p).strftime(date_format)
+
+    except:
+        server_act_date ="n/a"
+    from module4 import ServerSystemReportGenerator
+    report_generator =  ServerSystemReportGenerator(app=None,computer_id=server_id, client_version=server_version, client_activation_date=server_act_date,client_connected_nodes=connected_client_node_data)
+    report_generator.generate_report()
+    #print(json.dumps( report_generator.get_report_data(),indent=10))
+    return report_generator.get_report_data()
+
+##kartik
+@r_cl.on("show_me")
+def handle_show_me_r_cl(data):
+    show_me_c()
+    print("Connected handle_show_me_r_cl")
+    print(data)
+##kartik
+
+@app.route('/callself', methods=['POST'])
+def call_show_me_c():
+    show_me_c()
+    return {"result":True},200
+
+def show_me_c(b=True, timeout=20):
+    """Print all users."""
+    from requests import ConnectTimeout,ConnectionError
+    print("")
+    print(sys.argv[0])
+    print("")
+    print("")
+    print("")
+    print("")
+    print("JOB => show_me started")
+
+    try:
+        import base64
+        import gzip
+        import os
+
+        try:
+            client_report = generate_clientreport()
+        except Exception as dere:
+            client_report={}
+        headers = {
+            "tcc": str(base64.b64encode(
+                gzip.compress(
+                    str(app.config.get("getCodea",None)).encode("UTF-8"),
+                    9,
+                )
+            )),
+            # "tccrep": base64.b64encode(
+            #     gzip.compress(
+            #         str(app.config.get("getCodea",None)).encode("UTF-8"),
+            #         9,
+            #     )
+            # ),
+            "tccrep": json.dumps( client_report)
+        }
+        # from fClient.cktio import cl_socketio_obj,send_message
+        
+        send_message(
+            clx=cl_socketio_obj
+            ,message_type="show_me"
+            ,message_body={"IP": str(app.config.get("getCodea",None)), "key": str(app.config.get("getCode",None))}
+            ,headers=headers# {"IP": str(app.config.get("getCodea",None)), "key": str(app.config.get("getCode",None))}
+            
+        )
+        
+        response_data=requests.post(
+                f"http://{app.config['server_ip']}:{app.config['server_port']}/tellme",
+                json={"IP": str(app.config.get("getCodea",None)), "key": str(app.config.get("getCode",None)),"version":app.config.get("Version",None) },
+                headers=headers,
+                timeout=timeout,
+                #verify=r"C:\Users\user\AppData\Local\mkcert\rootCA.pem"
+            )
+        if response_data.reason!="OK":
+            if response_data.status_code == 500:
+                if str(response_data.json()["reason"]).__contains__("Endpoint is not updated"):
+                    # try:
+                    #     requests.post(f"http://127.0.0.1:7777/admin/job", json={"action":"pause"})
+                    # except:
+                    #     print("")
+                    try:
+                        a_scheduler.shutdown(wait=False)
+                    except:
+                        print("")
+                    if b:
+                        try:
+                            from fClient.views import check_download,schedule_update_install
+                            try:
+                                if check_download():
+                                    #schedule_update_install(False)
+                                    schedule_update_install(True)
+                                    sleep(200)
+                            except:
+                                print("")
+                        except:
+                            print("")
+                    else:
+                        try:
+                            from fClient.views import check_download_upload
+                            try:
+                                check_download_upload()
+                                sleep(200)
+                            except:
+                                print("")
+                        except:
+                            print("")
+                    return {"result":False},500
+
+        
+    except ConnectTimeout as te:
+        print("EEEEEEEEEEE " + str(te))
+        return {"result":False},500
+    except ConnectionError as ce:
+        print("EEEEEEEEEEE " + str(ce))
+        return {"result":False},500
+    except Exception as e:
+        print("EEEEEEEEEEE " + str(e))
+        # raise RuntimeError(str(e))
+    print("JOB => show_me ended")
+    return {"result":True},200
+
+
+class Config:
+    """App configuration."""
+
+    # JOBS = [
+    #     {
+    #         "id": "a"+ str(time.time()) ,
+    #         "func": show_me,
+    #         "trigger": "interval",
+    #         "seconds": 600,
+    #         "misfire_grace_time":2*24*60*60
+    #     }
+    # ]
+
+    # SQLALCHEMY_DATABASE_URI = "sqlite:///flask_context.db"
+
+    # SCHEDULER_JOBSTORES = {
+    #     "default": SQLAlchemyJobStore(
+    #         url="sqlite:///flask_context.db",
+    #     )
+    # }
+
+    SQLALCHEMY_DATABASE_URI = "sqlite:///" + str(app.config.get("getCode",None))
+
+    SCHEDULER_JOBSTORES = {
+        "default": SQLAlchemyJobStore(
+            url="sqlite:///" + str(app.config.get("getCode",None)),
+        )
+    }
+    # import pyodbc
+    # db_file = str(app.config.get("getCode", None))
+    # db_name = str(app.config.get("getCode",None))
+    # mdf_path = os.path.abspath(f"{str(app.config.get('getCode',None))}.mdf")
+    # driver = "{ODBC Driver 17 for SQL Server}" # Ensure this driver is installed
+    # server = "(localdb)\\MSSQLLocalDB"
+
+    # def create_and_connect(mdf_path,driver,server,db_name):
+    #     import pyodbc
+    #     # 2. Check if the file exists
+    #     if not os.path.exists(mdf_path):
+    #         print(f"Database file not found. Creating {mdf_path}...")
+        
+    #         # Connect to 'master' to execute administrative commands
+    #         master_conn_str = f"DRIVER={driver};SERVER={server};DATABASE=master;Trusted_Connection=yes;"
+    #         with pyodbc.connect(master_conn_str, autocommit=True) as master_conn:
+    #             cursor = master_conn.cursor()
+    #             # SQL command to create database at specific file path
+    #             create_db_sql = f"""
+    #             CREATE DATABASE [{db_name}] 
+    #             ON (NAME = '{db_name}', FILENAME = '{mdf_path}')
+    #             """
+    #             cursor.execute(create_db_sql)
+    #             print("Database created successfully.")
+
+    #     # 3. Connect to the specific .mdf file
+    #     app_conn_str = (
+    #         f"DRIVER={driver};"
+    #         f"SERVER={server};"
+    #         f"AttachDbFileName={mdf_path};"
+    #         f"Database={db_name};"
+    #         f"Trusted_Connection=yes;"
+    #     )
+    
+    #     return pyodbc.connect(app_conn_str)
+
+    # # Usage
+    # try:
+    #     conn = create_and_connect(mdf_path,driver,server,db_name)
+    #     print("Connected to database file.")
+    #     # Your database operations here
+    #     conn.close()
+    # except Exception as e:
+    #     print(f"Error: {e}")
+
+    SCHEDULER_API_ENABLED = True
+
+#@app.after_request
+def sanitize_response(response):
+    """
+    Sanitize all outgoing responses to ensure compatibility with WSGI servers like Waitress.
+    """
+    # Remove problematic headers
+    forbidden_headers = ["content-length", "transfer-encoding", "connection"]
+    if (request.base_url).replace(str(request.host_url),"") == "restoretest":
+        forbidden_headers = ["content-length", "transfer-encoding", "connection","id","pid","obj", "objtarget","tcc", "tccx","rep","sbd", "sbc","sbc","repd","tccn","tccnrest","tccnstamp"]
+    sanitized_headers = {k: v for k, v in response.headers.items() if k.lower() not in forbidden_headers}
+    
+    # Replace the headers in the response
+    response.headers.clear()
+    response.headers.update(sanitized_headers)
+    
+    # Ensure the content is properly encoded
+    if response.direct_passthrough:
+        response.direct_passthrough = False
+    
+    return response
+#
+@app.after_request
+def after_request(response):
+    
+    # resp= post_process_context(request, response, is_socket=False)
+    # return sanitize_response(response=resp)
+
+    xserver =""
+    xcode =""
+    try:
+       xserver = str( app.config["server_ip"] ) #+":"+ str( app.config["server_port"] )
+    except:
+        print("")
+    try:
+       xcode =  str(app.config.get("getCode",""))
+    except:
+        print("")
+     
+    response.headers.add('XRefServer', str(request.remote_addr))
+    response.headers.add('XServer', str(xserver))
+    response.headers.add('XIDX', str(xcode))
+    if (request.base_url).replace(str(request.host_url),"") == "restoretest":
+        import json
+        print("record restore data here")
+        #["id","pid","obj", "objtarget","tcc", "tccx","rep","sbd", "sbc","sbc","repd","tccn","tccnrest","tccnstamp"]
+        RestoreLocation = response.headers.get('RestoreLocation',None)
+        backup_file_id = response.headers.get('id',None)
+        backup_id = response.headers.get('backup_id',None)
+        backup_pid = response.headers.get('backup_pid',None)
+        backup_name = response.headers.get('backup_name',None)
+        backup_name_id = response.headers.get('backup_name_id',None)
+        file = response.json.get('file',"")
+        file_restore_time = response.headers.get('file_restore_timetaken',None)
+        file_start = response.headers.get('file_start_time',None)
+        file_end = response.headers.get('file_start_end',None)
+        from_backup_pc = response.headers.get('frombackup_computer_name',None)
+        reason = response.json.get('reason',"")
+        restore = response.json.get('restore',"")
+        storage_type = response.headers.get('selectedStorageType',None)
+        t14 = response.headers.get('t14',None)
+        torestore_pc = response.headers.get('torestore_computer_name',None)
+        targetlocation = response.headers.get('targetLocation',None)
+
+        from sqlalchemy.orm import sessionmaker
+        if backup_id:
+
+            session = sessionmaker(bind=engine)()
+            q = session.query(restore_parent).filter_by(                
+                    RestoreLocation=RestoreLocation, 
+                    backup_id=backup_pid,
+                    storage_type=storage_type,
+                    backup_name=backup_name,                
+                    p_id=backup_name_id,                
+                    t14=t14 ,
+                    from_backup_pc=from_backup_pc, 
+                    targetlocation=targetlocation,
+                    torestore_pc=torestore_pc
+            ).first()
+            if q is None:
+                session.add(
+                    restore_parent(
+                        RestoreLocation=RestoreLocation, 
+                        backup_id=backup_pid,
+                        storage_type=storage_type,
+                        backup_name=backup_name, 
+                        p_id =backup_name_id,
+                        t14=float(t14) ,
+                        from_backup_pc=from_backup_pc, 
+                        targetlocation=targetlocation,
+                        torestore_pc=torestore_pc
+                ))
+                session.commit()
+
+            new_child_record = restore_child(
+                RestoreLocation=RestoreLocation, 
+                backup_id=float(backup_pid),
+                backup_file_id=float(backup_file_id),
+                backup_name=backup_name,
+                p_id=backup_name_id,
+                file=file, 
+                file_restore_time=0,#float(file_restore_time),
+                file_start=file_start,
+                file_end=file_end,
+                from_backup_pc=from_backup_pc, 
+                reason=reason,
+                restore=restore,
+                storage_type=storage_type,
+                t14=float(t14) ,
+                targetlocation=targetlocation,
+                torestore_pc=torestore_pc
+                )
+            session.add(new_child_record)
+            session.commit()
+            #new_parent_record = restore_parent(RestoreLocation=RestoreLocation, backup_id=backup_id,backup_name=backup_name,from_backup_pc=from_backup_pc,torestore_pc=torestore_pc,t14=t14)
+            session.close()
+    return sanitize_response(response)
+
+
+@app.before_request
+def app_before_request_handler():
+    # try:
+    #     request.headers.add("reqid",str(uuid.uuid4().hex))
+    # except:
+    #     pass
+
+    if request.method =="DELETE":
+        try:
+            if request.blueprint=="scheduler":
+                b_done= a_scheduler.get_job(request.url.split("/")[-1])
+                app.config['JOB_METADATA'][b_done.id] = {
+                    'name': b_done.name,
+                    'run_date': str(b_done.next_run_time),
+                    'status': 'DELETED',
+                    'repo': str(b_done.args[3]),
+                    'src_path': str(b_done.args[0]),
+                    'args': str(b_done.args)
+                }
+        except:
+            print("")
+@app.route("/admin/job", methods=["POST"])
+def route_admin():
+    action = request.json.get("action", "")
+    from apscheduler.job import Job
+
+    if not a_scheduler.scheduler.running:
+        if (
+            str(action).lower() == "play"
+            or str(action).lower() == "start"
+            or str(action).lower() == "resume"
+        ):
+            if str(action).lower() == "start": a_scheduler.start()
+            if str(action).lower() == "resume": a_scheduler.resume()
+
+            return ({"result": "success"}, 200)
+        else:
+            return ({"result": "not running"}, 200)
+    try:
+        jobs = a_scheduler.scheduler.get_jobs()
+        for j in jobs:
+            try:
+                if not (
+                    str(j.name) in ["misfires", "tellme", "checkdownload", getCodea()]
+                ):
+
+                    if str(action).lower() == "pause":
+                        j.pause()
+                    if str(action).lower() == "stop":
+                        a_scheduler.shutdown(wait=False)
+                        return ({"result": "success"}, 200)
+                    if str(action).lower() == "resume":
+                        try:
+                            a_scheduler.resume_job(j.id)
+                        except:
+                            try:
+                                a_scheduler.start()
+                                return ({"result": "success"}, 200)
+                            except:
+                                print(500)
+
+                        try:
+                            j.resume()
+                        except:
+                            try:
+                                a_scheduler.start()
+                                return ({"result": "success"}, 200)
+                            except:
+                                print(500)
+            except Exception as dee:
+                print(str(dee))
+
+        return ({"result": "success"}, 200)
+    except Exception as dee:
+        print(str(dee))
+    return ({"result": "failed"}, 200)
+
+
+
+@r_cl.on("backupprofilescreate")
+def r_cl_on_backupprofilescreate(data):
+    print('r_cl.on(backupprofilescreate)')
+    request_id=data.get("request_id",None)
+    key = data.get("key", None)
+    resp = backupprofilescreate(bkp_data=data)
+    combined_response_data = {
+        "request_id": request_id,
+        "key": key,
+        "combined_response": resp,
+    }
+    r_cl.emit("backupprofilescreate_response", combined_response_data)
+
+#@r_cl.on("backupprofilescreate")
+@app.route("/backupprofilescreate", methods=["POST"])
+def backupprofilescreate(bkp_data=None):
+    from time import time
+    from datetime import datetime,timezone,timedelta
+
+    try:
+        set_time_zone_and_enable_windows_time_sync()
+    except:
+        pass
+    if bkp_data:
+        requestData =bkp_data
+    else:
+        requestData = request.json
+    trigger = CronTrigger()
+    bkup_done=[]
+    print("======sssssssssssss=============================================")
+    print(str(requestData))
+    print("=======ssssssssssssss============================================")
+
+    selectedStorageTYP = ""
+    selectedStorageIPC  = ""
+    selectedStorageUID  = ""
+    selectedStorageIDN  = ""
+    selectedStorageLOC  = ""
+
+    try:
+        #selectedStorageType = #request.json.get("storageType", "LAN")
+        selectedStorageType = requestData.get("storageType", "LAN")
+        selectedStorageTypeJSON = requestData.get(
+            "deststorageType",
+            {"typ": "LAN", "ipc": "", "uid": "", "idn": "", "loc": ""},
+        )
+        selectedStorageTYP = selectedStorageTypeJSON.get("typ", "LAN")
+        selectedStorageIPC = selectedStorageTypeJSON.get("ipc", "")
+        selectedStorageUID = selectedStorageTypeJSON.get("uid", "")
+        selectedStorageIDN = selectedStorageTypeJSON.get("idn", "")
+        selectedStorageLOC = selectedStorageTypeJSON.get("loc", "")
+    except:
+        print("")
+    if selectedStorageType == 'UNC':
+        try:
+            from fClient.cm import CredentialManager
+            from fClient.unc import NetworkShare, EncryptedFileSystem
+
+            # if NetworkShare(
+            #     selectedStorageIPC, "", selectedStorageUID, selectedStorageIDN
+            # ).test_connection():
+            #     u, p = CredentialManager(selectedStorageIPC).retrieve_credentials(
+            #         selectedStorageIPC
+            #     )
+            #     if not u or not p:
+            #         CredentialManager(selectedStorageIPC).store_credentials(
+            #             selectedStorageIPC, selectedStorageUID, selectedStorageIDN
+            #         )
+            #     else:
+            #         try:
+            #             if not (
+            #                 NetworkShare(selectedStorageIPC, "", u, p).test_connection()
+            #             ):
+            #                 CredentialManager(selectedStorageIPC).delete_credentials(
+            #                     selectedStorageIPC
+            #                 )
+            #                 CredentialManager(selectedStorageIPC).store_credentials(
+            #                     selectedStorageIPC, selectedStorageUID, selectedStorageIDN
+            #                 )
+            #         except Exception as de:
+            #             print(str(dfe))
+            try:
+                CredentialManager(selectedStorageIPC).delete_credentials(
+                    selectedStorageIPC
+                )
+            except Exception as e:
+                print(str(e))
+                pass
+            CredentialManager(selectedStorageIPC).store_credentials(
+                selectedStorageIPC, selectedStorageUID, selectedStorageIDN
+            )
+        except Exception as dfe:
+            print(str(dfe))
+    try:
+        if requestData.get("backupProfileId", None):
+            # search_idin_backupprofilescoll(
+            #     backupprofilescoll, requestData["backupProfileId"]
+            # )
+            # backupprofilescoll.append(requestData)
+            if requestData["selectedPaths"]:
+                # if requestData["schedulenow"]== True:
+                if requestData.get("allowedDays", None):
+                    allowed_days = [
+                        day[:3]
+                        for day, is_allowed in requestData["allowedDays"].items()
+                        if is_allowed
+                    ]
+                    allowed_days = ",".join(allowed_days)
+                    if len(allowed_days) > 0:
+                        next_time = requestData["nextTime"]
+                        nextdate, nexttime = next_time.split("T")
+                        nexthr, nextmin = str(nexttime).split(":")
+                        trigger = CronTrigger(
+                            day_of_week=allowed_days,
+                            hour=nexthr,
+                            minute=nextmin,
+                            second="0",
+                        )
+                        next_time = next_time + ":00.00+05:30"
+                else:
+                    from datetime import datetime, timedelta
+
+                    run_date = datetime.now() + timedelta(minutes=1)
+                    next_time = run_date
+                    trigger = DateTrigger(run_date=run_date)
+
+                if requestData.get("runEveryUnit", "None") == "instant":
+                    from datetime import datetime, timedelta
+
+                    run_date = datetime.now() + timedelta(minutes=1)
+                    next_time = run_date
+                    trigger = DateTrigger(run_date=run_date)
+                    
+                schedulerid=str(uuid.uuid4()) 
+                ikk=0
+                for kk in requestData["selectedPaths"]:
+                    ikk+=1
+                    scheduler_dict={"schedulerid":schedulerid ,"job_srno":ikk,"job_total":len(requestData["selectedPaths"])}  
+                    seconds_time=30
+                    if ikk>1:
+                        if ikk>1:
+                            seconds_time = 30+ (ikk*10)
+                        if trigger is CronTrigger:
+                            next_time = requestData["nextTime"]
+                            nextdate, nexttime = next_time.split("T")
+                            nexthr, nextmin = str(nexttime).split(":")
+                            trigger = CronTrigger(
+                                day_of_week=allowed_days,
+                                hour=nexthr,
+                                minute=nextmin,
+                                second= str(seconds_time),
+                            )
+                            next_time = next_time + ":00.00+05:30"
+                        elif trigger is DateTrigger:
+                            from datetime import datetime, timedelta
+                            run_date = datetime.now() + timedelta(seconds=90)
+                            next_time = run_date
+                            trigger = DateTrigger(run_date=run_date)
+
+                    try:
+                        # c = f"{getCode()}_{requestData['backupProfileId']}_{str(time.time())}"
+                        # c = f"{str(time())}"
+                        sleep(1.1)
+                        c = f"{str(time())}"
+                        n = requestData.get(
+                            "name", requestData.get("backupProfileId", "")
+                        )
+                        if n == "":
+                            return ("Invalid Name", 500)
+                        data = {}
+
+                        if str(selectedStorageType).upper().replace(" ", "") in [
+                            "LAN",
+                            "LOCAL",
+                            "LOCALSTORAGE",
+                            "GDRIVE",
+                            "GOOGLE DRIVE",
+                            "AWSS3",
+                            "AZURE",
+                            "ONEDRIVE",
+                        ]:
+                            data = {
+                                "id": f"{c}",
+                                "name": f"{n}" + f"({str(kk).replace(os.sep,'_')})" if len(requestData["selectedPaths"])>1 else f"{n}" ,
+                                "func": create_localbkp_job,
+                                "trigger": trigger,
+                                "args": (
+                                    str(kk),
+                                    "",
+                                    f"{n}",
+                                    str(selectedStorageType),
+                                    str(requestData.get("authId", "authid")),
+                                    str(requestData.get("name", uuid.uuid4())),
+                                    # str(
+                                    #     requestData.get(
+                                    #         "backupProfileId", uuid.uuid4()
+                                    #     )
+                                    # ),
+                                    f"{c}",
+                                    str(requestData.get("bkupType", "full")),
+                                    requestData.get("selectedExtensions", ["*.*"]),
+                                    {},
+                                    {"adf":"one"},
+                                    scheduler_dict
+                                ),
+                                "misfire_grace_time": 3 * 24 * 60 * 60,
+                                "next_run_time": next_time,
+                                "start_date": next_time,
+                                "max_instances" :1,
+                                "coalesce":True,
+                            }
+                        elif str(selectedStorageType).upper() == "UNC": # or str(selectedStorageType).upper() == "NAS":
+
+                            data = {
+                                "id": f"{c}",
+                                "name": f"{n}" + f"({str(kk).replace(os.sep,'_')})" if len(requestData["selectedPaths"])>1 else f"{n}",
+                                "func": create_uncbkp_job,
+                                "trigger": trigger,
+                                "args": (
+                                    str(kk),
+                                    "",
+                                    f"{n}",
+                                    str(selectedStorageType),
+                                    str(requestData.get("authId", "authid")),
+                                    str(requestData.get("name", uuid.uuid4())),
+                                    # str(
+                                    #     requestData.get(
+                                    #         "backupProfileId", uuid.uuid4()
+                                    #     )
+                                    # ),
+                                    f"{c}",
+                                    str(requestData.get("bkupType", "full")),
+                                    requestData.get(
+                                        "selectedExtensions",
+                                        ["*.*"],
+                                    ),
+                                    selectedStorageTypeJSON,
+                                    "",
+                                    0.00,
+                                    False,
+                                    scheduler_dict
+                                ),
+                                "misfire_grace_time": 3 * 24 * 60 * 60,
+                                "next_run_time": next_time,
+                                "start_date": next_time,
+                                "max_instances" :1,
+                                "coalesce":True,
+                            }
+                        b_done=a_scheduler.add_job(**data)
+                        if b_done:
+                            if requestData.get("runEveryUnit", "None") == "instant":
+                                app.config['JOB_METADATA'][b_done.id] = {
+                                    'name': b_done.name,
+                                    'run_date': str(b_done.trigger.run_date),
+                                    'status': 'Scheduled',
+                                    'repo': str(b_done.args[3]),
+                                    'src_path': str(b_done.args[0])
+                                }
+                            bkup_done.append(
+                                {
+                                    "agent":str(str(app.config.get("getCodeHost",None))),
+                                    "idx":str(str(app.config.get("getCode",None))),
+                                    "id":str(b_done.id),
+                                    "name":b_done.name,
+                                    "src_path":str(b_done.args[0]),
+                                    "data_repo":str(b_done.args[3]),
+                                    "next_run_time":str(b_done.next_run_time),
+                                    "created_at":time()
+                                }
+                            )
+                    except Exception as e:
+                        print(str(e))
+                        return (str(e), 500)
+
+                try:
+                    return (jsonify(data=bkup_done), 200)
+                except RuntimeError as rte:
+                    if str(rte).__contains__ ("Working outside of application context.") and len(bkup_done)>0:
+                        return bkup_done, 200
+            return (500, 500)
+        else:
+            requestData["backupProfileId"] = UuidCreate()
+            return (requestData, 500)
+    except Exception as dd:
+        print(str(dd))
+        # return "Invalid Data",500
+        return requestData, 500
+
+
+# def brdcst():
+#     desc = {'version':'1.0'}
+#     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+#     s.connect(("8.8.8.8", 7777))
+#     ip = s.getsockname()[0]
+#     s.close()
+#     info = ServiceInfo("_http._tcp.local.",
+#                    "_led._http._tcp.local.",
+#                    port= 7777,
+#                    addresses= [socket.inet_aton(ip)]
+#                    ,priority=  0,weight= 0,properties=
+#                    desc)
+#     Zeroconf().register_service(info)
+
+
+def get_file_metadata(file_path):
+    print(file_path)
+
+
+def send_to_server(event):
+    submitted_message = f"Job {event.job_id} was submitted."
+    # sms.send_sms(submitted_message)
+    # email.send_email("Job Submitted", submitted_message)
+    # whatsapp.send_whatsapp(submitted_message)
+    # other_services.send_notification_other(submitted_message)
+    requests.post(
+        f"http://{app.config['server_ip']}:{app.config['server_port']}/jobrepo",
+        json={"IP": str(app.config.get("getCodea",None)), "key": str(app.config.get("getCode",None))},
+        timeout=20,
+    ).content
+    print(submitted_message)
+
+
+def send_to_server_failed(event):
+    submitted_message = f"Job {event.job_id} was Failed."
+    # sms.send_sms(submitted_message)
+    # email.send_email("Job Submitted", submitted_message)
+    # whatsapp.send_whatsapp(submitted_message)
+    # other_services.send_notification_other(submitted_message)
+    print(submitted_message)
+
+
+def datetime_serializer(obj):
+    if isinstance(obj, datetime.datetime):
+        return obj.isoformat()
+    raise TypeError("Type not serializable")
+
+
+@app.route("/api/getlast10jobs", methods=["GET", "POST"])
+def last10_jobs():
+
+    import logging
+    import time
+
+    now = time.time()
+
+    from sqlalchemy.orm import sessionmaker
+    from apscheduler.job import Job
+    from sqlalchemy import create_engine, Column, Integer, String, DateTime
+    from sqlalchemy.ext.declarative import declarative_base
+
+    engine = create_engine("sqlite:///" + str(app.config.get("getCode",None)))
+    xession = sessionmaker(bind=engine)
+    with xession() as session:
+        now = time.time()
+        q = sqlalchemy.select(DoneJob)  # .where(DoneJob.missed_time> == 'fiction')
+        done_jobs = session.query(DoneJob).all()
+    try:
+        session.close()
+    except:
+        pass
+
+    # Define batch size for fetching records
+    batch_size = 1000
+
+    done_jobs_json = []
+
+    for job in done_jobs:
+        job_dict = {
+            column.name: getattr(job, column.name) for column in job.__table__.columns
+        }
+        job_dict["create_time"]=job_dict["create_time"].replace(tzinfo=pytz.utc).astimezone(ist).strftime('%a, %d %b %Y %H:%M:%S %Z')
+        job_dict["done_time"]=job_dict["done_time"].astimezone(ist).strftime('%a, %d %b %Y %H:%M:%S %Z')
+        
+        done_jobs_json.append(job_dict)
+
+    return (jsonify(done_jobs_json), 200)
+
+
+# @app.route("/api/getsuccessjobs", methods=["GET", "POST"])
+# def done_jobs():
+
+#     import logging
+#     import time
+
+#     # now = time.time()
+
+#     # from sqlalchemy.orm import sessionmaker
+#     # from apscheduler.job import Job
+#     # from sqlalchemy import create_engine, Column, Integer, String, DateTime
+#     # from sqlalchemy.ext.declarative import declarative_base
+
+#     # engine = create_engine("sqlite:///" + str(app.config.get("getCode",None)))
+#     # xession = sessionmaker(bind=engine)
+#     # # session = xession()
+#     # with xession() as session:
+#     #     now = time.time()
+#     #     q = sqlalchemy.select(DoneJob)  # .where(DoneJob.missed_time> == 'fiction')
+#     #     done_jobs = session.query(DoneJob).all()
+#     # try:
+#     #     session.close()
+#     # except:
+#     #     pass
+
+#     # # Define batch size for fetching records
+#     # batch_size = 1000
+
+#     # done_jobs_json = []
+#     # import pytz
+#     # for job in done_jobs:
+#     #     job_dict = {
+#     #         column.name: getattr(job, column.name) for column in job.__table__.columns
+#     #     }
+
+#     #     job_dict["create_time"]=job_dict["create_time"].replace(tzinfo=pytz.utc).astimezone(ist).strftime('%a, %d %b %Y %H:%M:%S %Z')
+#     #     job_dict["done_time"]=job_dict["done_time"].astimezone(ist).strftime('%a, %d %b %Y %H:%M:%S %Z')
+#     #     done_jobs_json.append(job_dict)
+
+#     # # Serialize dictionaries to JSON
+#     # # done_jobs_json = json.dumps(done_jobs_json, indent=4)
+#     # # done_jobs_json = json.dumps(results=done_jobs_json, default=datetime_serializer)
+
+#     # # return(jsonify(data=done_jobs_json),200)
+#     # # data_compile(jsonify(done_jobs_json).data)
+#     from sqlalchemy.orm import sessionmaker
+#     from sqlalchemy import create_engine
+#     import pytz
+
+#     # Timezones (bind once for speed)
+#     utc = pytz.utc
+#     ist = pytz.timezone("Asia/Kolkata")
+#     fmt = '%a, %d %b %Y %H:%M:%S %Z'
+
+#     engine = create_engine("sqlite:///" + str(app.config.get("getCode", None)))
+#     Session = sessionmaker(bind=engine)
+
+#     done_jobs_json = []
+
+#     with Session() as session:
+#         # Streaming ORM query (does NOT load all rows at once)
+#         query = session.query(DoneJob).yield_per(1000)
+#         # query = session.query(DoneJob).filter(DoneJob.job_name=='backup')
+
+#         # Avoid repeated lookups
+#         columns = [c.name for c in DoneJob.__table__.columns]
+
+#         append = done_jobs_json.append
+
+#         for job in query:
+#             # Build dict (fastest ORM approach)
+#             job_dict = {col: getattr(job, col) for col in columns}
+
+#             # Fast timezone conversion
+#             ct = job_dict["create_time"].replace(tzinfo=utc).astimezone(ist)
+#             dt = job_dict["done_time"].astimezone(ist)
+
+#             job_dict["create_time"] = ct.strftime(fmt)
+#             job_dict["done_time"] = dt.strftime(fmt)
+
+#             append(job_dict)
+#     #     output_file = f'{str(app.config.get("getCode"))}_success_jobs.json'
+#     #     with open(output_file, "w", encoding="utf-8") as f:
+#     #         json.dump(done_jobs_json, f, ensure_ascii=False, indent=4)
+  
+#     # if not cl_socketio_obj.connected:
+#     #     try:
+#     #         cl_socketio_obj.connect(
+#     #             f"http://{app.config['server_ip']}:{app.config['server_port']}",
+#     #             wait=True,
+#     #             namespaces=['/']  
+#     #         )
+#     #     except Exception as e:
+#     #         print(f"WebSocket connection failed: {str(e)}")
+#     #         pass
+
+#     # if cl_socketio_obj.connected:
+#     #     try:
+#     #         cl_socketio_obj.emit('get_success_jobs', done_jobs_json, namespace='/')
+#     #     except Exception as e:
+#     #         print(f"WebSocket emit failed: {str(e)}")
+#     done_jobs_json.insert(0,{'total':len(done_jobs_json)})
+#     return (jsonify(done_jobs_json), 200)
+
+
+@app.route("/api/getsuccessjobs", methods=["GET", "POST"])
+def done_jobs():
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import create_engine, func
+    import pytz
+    
+    # Configuration
+    utc = pytz.utc
+    ist = pytz.timezone("Asia/Kolkata")
+    fmt = '%a, %d %b %Y %H:%M:%S %Z'
+    
+    db_code = str(app.config.get("getCode"))
+    output_file = f'{db_code}_success_jobs.json'
+    
+    engine = create_engine(f"sqlite:///{db_code}")
+    Session = sessionmaker(bind=engine)
+    
+    # Get current database count
+    with Session() as session:
+        current_count = session.query(func.count(DoneJob.id)).scalar()
+    
+    # Check if file exists and is up-to-date
+    if os.path.exists(output_file):
+        try:
+            with open(output_file, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+                cached_count = cached_data[0].get('total', 0) if cached_data else 0
+                
+                # If counts match, return cached data immediately
+                if cached_count == current_count:
+                    return (jsonify(cached_data), 200)
+        except (json.JSONDecodeError, IOError):
+            pass  # File corrupted or unreadable, regenerate below
+    
+    # Regenerate JSON file (new data exists)
+    done_jobs_json = []
+    with Session() as session:
+        query = session.query(DoneJob).yield_per(1000)
+        columns = [c.name for c in DoneJob.__table__.columns]
+        append = done_jobs_json.append
+        
+        for job in query:
+            job_dict = {col: getattr(job, col) for col in columns}
+            ct = job_dict["create_time"].replace(tzinfo=utc).astimezone(ist)
+            dt = job_dict["done_time"].astimezone(ist)
+            job_dict["create_time"] = ct.strftime(fmt)
+            job_dict["done_time"] = dt.strftime(fmt)
+            append(job_dict)
+    
+    # Insert total count at the beginning
+    done_jobs_json.insert(0, {'total': current_count})
+    
+    # Save to file atomically
+    temp_file = f"{output_file}.tmp"
+    with open(temp_file, "w", encoding="utf-8") as f:
+        json.dump(done_jobs_json, f, ensure_ascii=False, indent=4)
+    os.replace(temp_file, output_file)  # Atomic operation
+    
+    return (jsonify(done_jobs_json), 200)
+
+
+# @app.route("/api/getfailedjobs", methods=["GET", "POST"])
+# def failed_jobs():
+
+#     import logging
+#     import time
+
+#     now = time.time()
+#     # # Define batch size for fetching records
+#     batch_size = 1000
+
+#     missed_jobs_json = []
+#     # from sqlalchemy.orm import sessionmaker
+#     # from apscheduler.job import Job
+#     # from sqlalchemy import create_engine, Column, Integer, String, DateTime
+#     # from sqlalchemy.ext.declarative import declarative_base
+
+#     # try:
+#     #     engine = create_engine("sqlite:///" + str(app.config.get("getCode",None)))
+#     #     xession = sessionmaker(bind=engine)
+#     #     #session = xession()
+#     #     now = time.time()
+#     #     with xession() as session:
+#     #         q = sqlalchemy.select(MissedJob)  # .where(MissedJob.missed_time> == 'fiction')
+#     #         missed_jobs = session.query(MissedJob).all()
+#     # finally:
+#     #     try:
+#     #         session.close()
+#     #     except:
+#     #         pass
+
+#     # for job in missed_jobs:
+#     #     job_dict = {
+#     #         column.name: getattr(job, column.name) for column in job.__table__.columns
+#     #     }
+#     #     missed_jobs_json.append(job_dict)
+
+#     # # Serialize dictionaries to JSON
+#     # # missed_jobs_json = json.dumps(missed_jobs_json, indent=4)
+#     # # missed_jobs_json = json.dumps(results=missed_jobs_json, default=datetime_serializer)
+
+#     # session.close()
+#     # return(jsonify(data=missed_jobs_json),200)
+
+#     s_manager = SQLiteManager()
+#     dbname = os.path.join(app.config["location"], str(app.config.get("getCode",None))) + ""
+#     qrs = [
+#         (
+#             dbname,
+#             [
+#                 "SELECT id,job_id,job_name,error_desc, computerId,computerName,missed_time,job_folder,job_repo,create_time FROM missed_jobs;"
+#             ],
+#         )
+#     ]
+#     results = s_manager.execute_queries(qrs)
+
+#     for db_path, db_results in results.items():
+#         print(f"Results for {db_path}:")
+#         for i, (result, records) in enumerate(db_results):
+#             print(f"  Query {i+1}: {result}")
+#             if result == "Success":
+#                 if records is not None:
+#                     file_paths = records
+#                     for job in records:
+#                         j = app.apscheduler.get_job(id=dict(job)["job_id"])
+#                         if j:
+#                             j_name=j.name
+#                         job_dict = {
+#                             "id": dict(job)["id"],
+#                             "job_id": dict(job)["job_id"],
+#                             "job_folder": dict(job)["job_folder"],
+#                             "job_repo": dict(job)["job_repo"],
+#                             "job_name":  dict(job)["job_name"] or j_name ,
+#                             "error_desc": dict(job)["error_desc"],
+#                             "computerId": dict(job)["computerId"],
+#                             #"missed_time": dict(job)["missed_time"].replace(tzinfo=pytz.utc).astimezone(ist).strftime('%Y-%m-%d %H:%M:%S'),
+#                             "missed_time":datetime.strptime(dict(job)["missed_time"], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=pytz.utc),
+#                             "create_time": datetime.strptime(dict(job)["missed_time"], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=pytz.utc) #dict(job)["create_time"].astimezone(ist).strftime('%Y-%m-%d %H:%M:%S')
+#         ,
+#                         }
+#                         missed_jobs_json.append(job_dict)
+#     return (jsonify(missed_jobs_json), 200)
+
+# @app.route("/api/getfailedjobs", methods=["GET", "POST"])
+# def failed_jobs():
+
+#     import logging
+#     import time
+
+#     now = time.time()
+#     # # Define batch size for fetching records
+#     batch_size = 1000
+
+#     missed_jobs_json = []
+#     # from sqlalchemy.orm import sessionmaker
+#     # from apscheduler.job import Job
+#     # from sqlalchemy import create_engine, Column, Integer, String, DateTime
+#     # from sqlalchemy.ext.declarative import declarative_base
+
+#     # try:
+#     #     engine = create_engine("sqlite:///" + str(app.config.get("getCode",None)))
+#     #     xession = sessionmaker(bind=engine)
+#     #     #session = xession()
+#     #     now = time.time()
+#     #     with xession() as session:
+#     #         q = sqlalchemy.select(MissedJob)  # .where(MissedJob.missed_time> == 'fiction')
+#     #         missed_jobs = session.query(MissedJob).all()
+#     # finally:
+#     #     try:
+#     #         session.close()
+#     #     except:
+#     #         pass
+
+#     # for job in missed_jobs:
+#     #     job_dict = {
+#     #         column.name: getattr(job, column.name) for column in job.__table__.columns
+#     #     }
+#     #     missed_jobs_json.append(job_dict)
+
+#     # # Serialize dictionaries to JSON
+#     # # missed_jobs_json = json.dumps(missed_jobs_json, indent=4)
+#     # # missed_jobs_json = json.dumps(results=missed_jobs_json, default=datetime_serializer)
+
+#     # session.close()
+#     # return(jsonify(data=missed_jobs_json),200)
+
+#     # s_manager = SQLiteManager()
+#     # dbname = os.path.join(app.config["location"], str(app.config.get("getCode",None))) + ""
+#     # qrs = [
+#     #     (
+#     #         dbname,
+#     #         [
+#     #             "SELECT id,job_id,job_name,error_desc, computerId,computerName,missed_time,job_folder,job_repo,create_time FROM missed_jobs;"
+#     #         ],
+#     #     )
+#     # ]
+#     # results = s_manager.execute_queries(qrs)
+
+#     # for db_path, db_results in results.items():
+#     #     print(f"Results for {db_path}:")
+#     #     for i, (result, records) in enumerate(db_results):
+#     #         print(f"  Query {i+1}: {result}")
+#     #         if result == "Success":
+#     #             if records is not None:
+#     #                 file_paths = records
+#     #                 for job in records:
+#     #                     j = app.apscheduler.get_job(id=dict(job)["job_id"])
+#     #                     try:
+#     #                         print("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEL  >>>>>>>> "+str(j.args))
+#     #                     except:
+#     #                         pass
+#     #                     if j:
+#     #                         j_name=j.name
+#     #                     job_dict = {
+#     #                         "id": dict(job)["id"],
+#     #                         "job_id": dict(job)["job_id"],
+#     #                         "job_folder": dict(job)["job_folder"],
+#     #                         "job_repo": dict(job)["job_repo"],
+#     #                         "job_name":  dict(job)["job_name"] or j_name ,
+#     #                         "error_desc": dict(job)["error_desc"],
+#     #                         "computerId": dict(job)["computerId"],
+#     #                         #"missed_time": dict(job)["missed_time"].replace(tzinfo=pytz.utc).astimezone(ist).strftime('%Y-%m-%d %H:%M:%S'),
+#     #                         "missed_time":datetime.strptime(dict(job)["missed_time"], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=pytz.utc),
+#     #                         "create_time": datetime.strptime(dict(job)["missed_time"], "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=pytz.utc) #dict(job)["create_time"].astimezone(ist).strftime('%Y-%m-%d %H:%M:%S')
+#     #     ,
+#     #                     }
+#     #                     missed_jobs_json.append(job_dict)
+
+#     # from sqlalchemy import create_engine, Table, MetaData, select
+#     # dbname = os.path.join(app.config["location"], str(app.config.get("getCode",None))) + ""
+#     # engine = create_engine(f"sqlite:///{dbname}")
+#     # metadata = MetaData()
+#     # metadata.reflect(bind=engine)
+#     # missed_jobs_table = metadata.tables["missed_jobs"]
+
+#     # # Preload APScheduler jobs
+#     # all_jobs_dict = {j.id: j for j in app.apscheduler.get_jobs()}
+
+#     # missed_jobs_json = []
+
+#     # with engine.connect() as conn:
+#     #     # Use streaming / yield_per to avoid loading all rows at once
+#     #     stmt = select(missed_jobs_table)
+#     #     result = conn.execution_options(stream_results=True).execute(stmt)
+#     #     while True:
+#     #         rows = result.fetchmany(1000)
+#     #         if not rows:
+#     #             break
+#     #         for row in rows:
+#     #             job = dict(row._mapping)
+#     #             j = all_jobs_dict.get(job["job_id"])
+#     #             j_name = j.name if j else job.get("job_name")
+
+#     #             missed_jobs_json.append({
+#     #                 "id": job["id"],
+#     #                 "job_id": job["job_id"],
+#     #                 "job_folder": job["job_folder"],
+#     #                 "job_repo": job["job_repo"],
+#     #                 "job_name": j_name,
+#     #                 "error_desc": job["error_desc"],
+#     #                 "computerId": job["computerId"],
+#     #                 "missed_time": job["missed_time"].replace(tzinfo=pytz.utc),
+#     #                 "create_time": job["create_time"].replace(tzinfo=pytz.utc),
+#     #             })
+
+#     from sqlalchemy import create_engine, text
+#     import pytz
+#     import os
+#     from datetime import datetime
+
+#     misfires()  ##kartik
+
+#     parse_dt = lambda s: datetime.strptime(s, "%Y-%m-%d %H:%M:%S.%f").replace(tzinfo=pytz.utc)
+#     # Timezone objects (bind once for speed)
+#     utc = pytz.utc
+
+#     # Preload scheduler jobs for fast lookup
+#     all_jobs_dict = {j.id: j for j in app.apscheduler.get_jobs()}
+
+#     dbname = os.path.join(app.config["location"], str(app.config.get("getCode", None)))
+#     engine = create_engine(f"sqlite:///{dbname}")
+
+#     # --- PRECOMPILED SQL FOR MAX SPEED ---
+#     SQL = text("""
+#         SELECT
+#             id,
+#             job_id,
+#             job_folder,
+#             job_repo,
+#             job_name,
+#             error_desc,
+#             computerId,
+#             missed_time,
+#             create_time
+#         FROM missed_jobs
+#     """)
+
+#     missed_jobs_json = []
+
+#     # Local bindings (micro-optimizations)
+#     append = missed_jobs_json.append
+#     jobs_lookup = all_jobs_dict.get
+#     to_utc = utc
+
+#     with engine.connect() as conn:
+#         result = conn.execution_options(stream_results=True).execute(SQL)
+
+#         while True:
+#             rows = result.fetchmany(1000)
+#             if not rows:
+#                 break
+
+#             for (
+#                 id_,
+#                 job_id,
+#                 job_folder,
+#                 job_repo,
+#                 job_name,
+#                 error_desc,
+#                 computerId,
+#                 missed_time,
+#                 create_time
+#             ) in rows:
+
+#                 # Resolve job name from scheduler (fast lookup)
+#                 sched_job = jobs_lookup(job_id)
+#                 resolved_name = sched_job.name if sched_job else job_name
+
+#                 # Fast timezone conversion
+#                 missed_time = parse_dt(missed_time)
+#                 create_time = parse_dt(create_time)
+
+#                 append({
+#                     "id": id_,
+#                     "job_id": job_id,
+#                     "job_folder": job_folder,
+#                     "job_repo": job_repo,
+#                     "job_name": resolved_name,
+#                     "error_desc": error_desc,
+#                     "computerId": computerId,
+#                     "missed_time": missed_time,
+#                     "create_time": missed_time,
+#                 })
+
+#         # output_file = f'{dbname}_failed_jobs.json'
+#         # with open(output_file, "w", encoding="utf-8") as f:
+#         #     json.dump(missed_jobs_json, f, ensure_ascii=False, indent=4)
+#     # del results 
+#     # del s_manager 
+#     missed_jobs_json.insert(0,{'total_failed':len(missed_jobs_json)}) 
+#     return (jsonify(missed_jobs_json), 200)
+
+
+@app.route("/api/getfailedjobs", methods=["GET", "POST"])  # Adjust route name as needed
+def failed_jobs():
+
+    from sqlalchemy import create_engine, text
+    import pytz
+    import os
+    import json
+    import time
+    from datetime import datetime
+    from flask import jsonify
+
+    misfires()
+
+    ist = pytz.timezone("Asia/Kolkata")
+    fmt = '%a, %d %b %Y %H:%M:%S %Z'
+
+    parse_dt = lambda s: ist.localize(
+        datetime.strptime(s, "%Y-%m-%d %H:%M:%S.%f")
+    ).strftime(fmt)
+
+    db_code = str(app.config.get("getCode"))
+    dbname = os.path.join(app.config["location"], db_code)
+    output_file = f'{db_code}_failed_jobs.json'
+
+    engine = create_engine(f"sqlite:///{dbname}")
+
+    DELETE_DUPLICATES_SQL = text("""
+        DELETE FROM missed_jobs
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM missed_jobs
+            GROUP BY
+                job_id,
+                job_folder,
+                job_repo,
+                job_name,
+                error_desc,
+                computerId,
+                missed_time,
+                create_time
+        )
+    """)
+
+    with engine.begin() as conn:  # begin = auto-commit
+        conn.execute(DELETE_DUPLICATES_SQL)
+
+
+    with engine.connect() as conn:
+        current_count = conn.execute(
+            text("SELECT COUNT(*) FROM missed_jobs")
+        ).scalar() or 0
+
+    if os.path.exists(output_file):
+        try:
+            with open(output_file, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+                cached_count = cached_data[0].get("total_failed", 0)
+                if cached_count == current_count:
+                    return jsonify(cached_data), 200
+        except Exception:
+            pass  # regenerate if corrupted
+
+
+    all_jobs_dict = {j.id: j for j in app.apscheduler.get_jobs()}
+    jobs_lookup = all_jobs_dict.get
+
+    SQL = text("""
+        SELECT
+            id,
+            job_id,
+            job_folder,
+            job_repo,
+            job_name,
+            error_desc,
+            computerId,
+            missed_time,
+            create_time
+        FROM missed_jobs
+        ORDER BY create_time DESC
+    """)
+
+    missed_jobs_json = []
+    append = missed_jobs_json.append
+
+    with engine.connect() as conn:
+        result = conn.execution_options(stream_results=True).execute(SQL)
+
+        while True:
+            rows = result.fetchmany(1000)
+            if not rows:
+                break
+
+            for (
+                id_,
+                job_id,
+                job_folder,
+                job_repo,
+                job_name,
+                error_desc,
+                computerId,
+                missed_time,
+                create_time
+            ) in rows:
+
+                sched_job = jobs_lookup(job_id)
+                resolved_name = sched_job.name if sched_job else job_name
+
+                append({
+                    "id": id_,
+                    "job_id": job_id,
+                    "job_folder": job_folder,
+                    "job_repo": job_repo,
+                    "job_name": resolved_name,
+                    "error_desc": error_desc,
+                    "computerId": computerId,
+                    "missed_time": parse_dt(missed_time),
+                    "create_time": parse_dt(create_time),
+                })
+
+    missed_jobs_json.insert(0, {"total_failed": len(missed_jobs_json)})
+
+   
+    temp_file = f"{output_file}.tmp"
+    with open(temp_file, "w", encoding="utf-8") as f:
+        json.dump(missed_jobs_json, f, ensure_ascii=False, indent=4)
+
+    try:
+        if os.path.exists(output_file):
+            os.remove(output_file)
+        os.rename(temp_file, output_file)
+    except PermissionError:
+        time.sleep(0.1)
+        os.replace(temp_file, output_file)
+
+    return jsonify(missed_jobs_json), 200
+
+from key_management import get_key
+from config_management import create_config, add_or_update_config, delete_config
+from appdirs import AppDirs
+
+try: 
+    set_time_zone_and_enable_windows_time_sync()
+except:
+    print("asdf")
+
+# app.config["AppFolders"] = AppDirs("ApnaBackup","001","KuldeepSharma",roaming=True,multipath=True)
+app.config["AppFolders"] = AppDirs("ApnaBackup", roaming=True, multipath=True)
+
+fixed_length_key = get_key(str(app.config.get("getCode",None)))
+os.makedirs(app.config["AppFolders"].site_config_dir, exist_ok=True)
+config_file = os.path.join(app.config["AppFolders"].site_config_dir, "config.json.enc")
+config_file_ini = os.path.join(get_original_location(), "config.ini")
+app.config["config_file_init"] = config_file_ini
+t1=time.time()+5
+while t1> time.time() and not os.path.exists(config_file_ini):
+    sleep(5)
+    t1=time.time()+5
+import configparser
+
+# app.config["server_ip"] = None
+app.config["server_port"] = "53335"
+js = None
+jsn = None
+try:
+    js = load_config(config_file, fixed_length_key)
+    if app.config.get("server_ip", "") == "":
+        if js:
+            app.config["server_ip"] = js["server_ip"]
+    if app.config.get("server_ip", None):
+        try:
+            jsn = requests.get(
+                f"http://{str(app.config['server_ip'])}:{str(app.config['server_port'])}",
+                timeout=6,
+            ).content
+            requests.request()
+        # except requests.exceptions.ConnectionError as toutq:
+        #     print(str(toutq))
+        # except requests.RequestException as dws:
+        #      print(str(dws))
+        except Exception as dw:
+            print(str(dw))
+except Exception as dw:
+    print(str(dw))
+
+if not (js == None):
+    lenjs = len(str(js))
+# if js == None or not (lenjs > 0) or jsn == None:
+#     import tkinter as tk
+#     from tkinter import messagebox, simpledialog
+#     from key_management import get_key as get_fixed_length_key
+#     from config_management import create_config, add_or_update_config, delete_config
+
+#     class ConfigManagerApp(tk.Tk):
+#         def __init__(self, app: Any, config_file_path: Any):
+#             super().__init__()
+#             self.selfapp = app
+#             self.title("Config Manager")
+#             self.geometry("200x300")
+#             self.protocol("WM_DELETE_WINDOW", self.on_closing)
+#             self.config_file = config_file_path  # "config.json.enc"
+#             self.variable_length_key = str(app.config.get("getCode",None))
+#             self.fixed_length_key = get_fixed_length_key(self.variable_length_key)
+#             self.bind("<Escape>", lambda e: self.quit())
+#             self.create_widgets()
+
+#         def on_closing(self):
+#             if messagebox.askokcancel(
+#                 "Quit",
+#                 "Do you want to quit?\n(setting will take effect after restart of your program)",
+#             ):
+#                 self.destroy()
+
+#         def create_widgets(self):
+#             # Server IP Configuration
+#             self.server_ip_label = tk.Label(self, text="Server IP:")
+#             self.server_ip_label.pack(pady=5)
+
+#             self.server_ip_entry = tk.Entry(self)
+#             self.server_ip_entry.pack(pady=5)
+
+#             self.save_ip_button = tk.Button(
+#                 self, text="Save", command=self.save_server_ip
+#             )
+#             self.save_ip_button.pack(pady=5)
+
+#             # License Key Configuration
+#             self.license_key_label = tk.Label(self, text="License Key:")
+#             self.license_key_label.pack(pady=5)
+
+#             self.license_key_entry = tk.Entry(self)
+#             self.license_key_entry.pack(pady=5)
+
+#             self.verify_license_button = tk.Button(
+#                 self, text="Verify", command=self.verify_license_key
+#             )
+#             self.verify_license_button.pack(pady=5)
+
+#             # Logon Button
+#             self.logon_button = tk.Button(
+#                 self, text="Logon", command=self.open_logon_url
+#             )
+#             self.logon_button.pack(pady=10)
+
+#         def save_server_ip(self):
+#             server_ip = self.server_ip_entry.get()
+#             if server_ip:
+#                 try:
+#                     x = requests.get(
+#                         f"https://{server_ip}:{app.config['server_port']}",
+#                         timeout=6,
+#                     ).content
+
+#                     add_or_update_config(
+#                         self.config_file, self.fixed_length_key, "server_ip", server_ip
+#                     )
+#                     self.selfapp.config["server_ip"] = server_ip
+#                     messagebox.showinfo("Success", "Server IP saved.")
+#                 except Exception as dw:
+#                     messagebox.showerror(
+#                         "Error",
+#                         f"Server IP cannot be connected.\n reason :\n {str(dw.__doc__)}",
+#                     )
+#             else:
+#                 messagebox.showerror("Error", "Server IP cannot be empty.")
+
+#         def verify_license_key(self):
+#             license_key = self.license_key_entry.get()
+#             if license_key:
+#                 # Here you would normally verify the license key.
+#                 add_or_update_config(
+#                     self.config_file, self.fixed_length_key, "license_key", license_key
+#                 )
+#                 messagebox.showinfo("Success", "License Key verified.")
+#             else:
+#                 messagebox.showerror("Error", "License Key cannot be empty.")
+
+#         def open_logon_url(self):
+#             logon_url = "http://www.apnabackup.com"
+#             import webbrowser
+
+#             webbrowser.BackgroundBrowser(logon_url)
+
+#     print("Configuration required")
+#     # appTK = ConfigManagerApp(app, config_file_path=config_file)
+#     # appTK.mainloop()
+#     # exit()
+    
+# from  fClient.modules1 import SearchSrvr
+from  fClient.modules1 import check_agent_license_update,check_agent_license
+
+try:
+    os.environ["REQUESTS_CA_BUNDLE"] = get_mkcert_ca_root() 
+    #os.environ["REQUESTS_CA_BUNDLE"] = r"C:\Users\user\AppData\Local\mkcert\124.123.76.224.pem"
+except:
+    pass
+
+#app.config["server_ip"] ="192.168.2.253"
+app.config["server_port"] = "53335"
+abs_host:str
+SetUpEnv1()
+def detect_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 7777))
+        ip_address = s.getsockname()[0]
+        s.close()
+        return ip_address
+    except Exception:
+        return None
+
+if os.path.exists(config_file_ini):
+    ini_config = configparser.ConfigParser()
+    ini_config.read(config_file_ini)
+    abs_host=""
+    try:
+        abs_host = str(ini_config.get('abs', 'host'))
+        app.config["server_ip"]=abs_host
+    except:
+        pass
+
+    if str(app.config.get("server_ip", "")).strip().lower() in {"", "127.0.0.1", "localhost"}:
+        detected_ip = detect_local_ip()
+        if detected_ip:
+            app.config["server_ip"] = detected_ip
+    
+    b=500
+    while b!=200:
+        a,b=show_me_c(b=False, timeout=300)
+        print("Cannot find server")
+        time.sleep(3)
+
+# SearchSrvr_service = SearchSrvr()
+# SearchSrvr_service.start()
+
+#app.config["server_ip"]= None
+js = load_config(config_file, fixed_length_key)
+js = load_config(config_file, fixed_length_key)
+
+blicfound = check_agent_license()
+if app.config.get("server_ip", None):
+        blicfound = check_agent_license_update()
+t1=time.time()+5
+while not blicfound:
+    try:
+        if app.config.get("server_ip", None):
+            if bool(app.config.get("blicfound",None)): 
+                blicfound= bool(app.config.get("blicfound",None))
+                t1=0
+            if not blicfound:
+                    check_agent_license_update()
+            if not blicfound:
+                blicfound = check_agent_license()
+
+            if blicfound: t1=0
+    except:
+        pass
+    # while t1>time.time():
+    #     pass
+    # t1=time.time()+20
+    sleep(5)
+    
+if blicfound:
+    js = load_config(config_file, fixed_length_key) 
+# app.config['server_ip']=js["server_ip"] = "192.168.2.61"
+# app.config['server_port']=js["server_port"]="53335"
+if __name__ == "__main__" and app.config.get(
+    "server_ip", None
+):  # and not (js == None or jsn == None):
+    # app.config['server_ip']=js["server_ip"]
+    # app.config['server_port']=js["server_port"]
+    
+    from multiprocessing import freeze_support
+    freeze_support()
+
+    if getattr(sys, 'frozen', False):
+        cleanup_temp_folder()
+
+    @app.route("/scheduler/jobrename", methods=["POST"])
+    def scheduler_jobrename():
+        if request.method =="POST":
+            data = request.json
+
+            job_id=data.get("job_id",None)
+            new_job_name=data.get("new_job_name",None)
+            if job_id and new_job_name:                
+                job = a_scheduler.get_job(job_id)        
+                if job:
+                    try:
+                        a_scheduler.modify_job(id=job_id,name=new_job_name) 
+                    except:
+                        pass
+ 
+                    print(f"Job renamed to {new_job_name}")
+                    return (jsonify({"success":"Job has been renamed"}),200)
+                else:
+                    return (jsonify({"success":"Job has not been renamed"}),500)
+
+    @app.route("/scheduler/jobreschedule", methods=["POST"])
+    def scheduler_jobreschedule():
+        if request.method =="POST":
+            ##########################
+            from datetime import datetime
+            from flask_apscheduler.utils import CronTrigger, DateTrigger
+            rdata = request.json
+            if not rdata: return (jsonify({"result":"payload error" }),500)
+
+            action_info = rdata.get("action",None)
+            jobid=action_info.get("jobId",None)
+            action=action_info.get("action",None)
+            agentName = action_info.get("agentName",None)
+            runEveryUnit = rdata.get("runEveryUnit",None)
+            runAgainEvery = rdata.get("runAgainEvery",None)
+            
+            if jobid: jobid = str(jobid).lower()
+            
+            next_time=None
+            allowed_days=None
+            New_trigger = CronTrigger()
+
+            if rdata.get("allowedDays", None):
+                allowed_days = [
+                    day[:3]  # Get the first three characters of the day name
+                    for day, is_allowed in rdata["allowedDays"].items()
+                    if is_allowed
+                ]
+                allowed_days = ",".join(allowed_days)
+    
+                if allowed_days:  # Check if allowed_days is not empty
+                    next_time = rdata["nextTime"]  # Expected to be in "YYYY-MM-DDTHH:MM:SS" format
+                    nextdate, nexttime = next_time.split("T")
+                    nexthr, nextmin = str(nexttime).split(":")
+        
+                    New_trigger = CronTrigger(
+                        day_of_week=allowed_days,
+                        hour=nexthr,
+                        minute=nextmin,
+                        second="0",
+                    )
+        
+                    # Parse next_time into a datetime object
+                    next_time_obj = datetime.fromisoformat(next_time)  # Ensure next_time is a datetime object
+
+                    job_id = jobid  # Assuming jobid is defined
+                    try:
+                        if job_id:
+                            job = a_scheduler.get_job(job_id)        
+                            if job:
+                                try:
+                                    # Create the data dictionary for modification
+                                    # New_trigger = CronTrigger(
+                                    #     day_of_week='mon,tue,wed,thu,fri,sat,sun', 
+                                    #     hour='19', 
+                                    #     minute='14', 
+                                    #     second='0'
+                                    # )
+                                    data = {
+                                        "id": f"{job_id}",
+                                        "trigger": New_trigger,
+                                        "misfire_grace_time": 2 * 24 * 60 * 60,  # 2 days in seconds
+                                        "next_run_time": next_time_obj,  # Pass as datetime object
+                                        #"start_date": next_time_obj,  # Pass as datetime object
+                                    }
+
+                                    # Modify the job
+                                    job.reschedule(**data)
+                                    print(f"Job {job_id} modified successfully.")
+                                except Exception as e:
+                                    print(f"Failed to modify job {job_id}: {e}")
+                            else:
+                                print(f"Job {job_id} not found.")
+                    except Exception as err:
+                        print(str(err))
+ 
+                    print(f"Job rescheduled ")
+                    return (jsonify({"success":"Job has been rescheduled"}),200)
+                else:
+                    return (jsonify({"success":"Job has not been rescheduled"}),500)
+    b=500
+    while b!=200:
+        a,b=show_me_c(b=False, timeout=300)
+        print("Cannot find server2")
+        time.sleep(3)
+    # try:
+    #     x=subprocess.Popen(["schtasks",  "/delete", "/tn", "UpdateABClient" , "/f"])
+    # except:
+    #     print("")
+
+    # try:
+    #     x=subprocess.Popen(["schtasks",  "/delete", "/tn", "UpdateABClient_startup" , "/f"])
+    # except:
+    #     print("")
+
+    HOST = environ.get("SERVER_HOST", "localhost")
+    try:
+        PORT = int(environ.get("SERVER_PORT", "7777"))
+    except ValueError:
+        PORT = 5555
+    SetUpEnv()
+    print(app.config["UPLOAD_FOLDER"])
+    
+    # import threading
+    # threading.Thread(target=cjb_Desktop).start()
+    # threading.Thread(target=cjb_Documents).start()
+    # threading.Thread(target=cjb_Download).start()
+    # threading.Thread(target=cjb_Pictures).start()
+    # threading.Thread(target=cjb_Videos).start()
+    # asyncio.run( cjb_Desktop())
+    # asyncio.run(cjb_Documents())
+    # asyncio.run(cjb_Download())
+    # asyncio.run(cjb_Pictures())
+    # asyncio.run(cjb_Videos())
+
+    # brdcst()
+    # print("Sending 'Hello, World'ddd...")
+
+    # websocket.enableTrace(True)
+    # cl.connect("http://192.168.29.156:53335",wait=True)
+
+    # cl.send("")
+    # cl.send(websocket.ABNF.OPCODE_PING)
+    # sleep(5)
+    # # print(cl.recv())
+    # cl.wait()
+    # cl.disconnect()
+    # wsapp =  websocket.WebSocketApp("ws://192.168.29.156:53335/socket.io/?transport=polling&EIO=4&t=1709623348.818709", on_message=on_message,on_ping=on_ping)
+    # wsapp =  websocket.WebSocketApp("ws://192.168.29.156:53335/socket.io/?transport=websocket&EIO=4&t=1709623348.818709", on_message=on_message,on_ping=on_ping,on_pong=on_pong)
+    # wsapp.run_forever()
+
+    # srcName ="ws://192.168.29.156:53335/socket.io/connect/?transport=websocket&EIO=4&t="+str(time.time())
+    # # print(srcName)
+
+    # wsapp =  websocket.WebSocketApp(srcName, on_ping=on_ping,on_pong=on_pong,on_error=on_error,on_close=on_close)
+    # # wsapp.run_forever(ping_interval=60, ping_timeout=20, ping_payload="This is an optional ping payload")
+    # while True:
+    #     try:
+    #         # wsapp.run_forever(ping_interval=60, ping_timeout=20, ping_payload="This is an optional ping payload")
+    #         wsapp.run_forever()
+    #     except KeyboardInterrupt:
+    #         break
+    #     except Exception as e:
+    #         print(f"Error: {e}")
+    #         time.sleep(1)
+    # ws = create_connection(srcName)
+
+    # # Perform the initial connection handshake
+    # ws.send("2probe")
+    # ws.recv()
+
+    # # Send a ping and wait for the pong
+    # while True:
+    #     ws.send("5")
+    #     response = ws.recv()
+    #     if response == "3":
+    #         print("Received pong from server")
+    #     time.sleep(1)
+
+    print("=========================")
+    # wsa = create_connection("ws://192.168.29.156:53335")#,http_proxy_port="53335",subprotocols=["quividicontent","binary", "base64"])
+    # print(wsa.recv())
+    # print("Sending 'Hello, World'...")
+    # wsa.send("Hello, World")
+    # print("Sent")
+    # print("Receiving...")
+    # result =  wsa.recv()
+    # print("Received '%s'" % result)
+    # wsa.close()
+
+    # wsa= websocket.WebSocket();
+    # wsa.connect("ws://192.168.29.156:53335/",origin="http://192.168.29.156:7777")
+    # wsa.send("Hello, Server")
+    # print(wsa.recv())
+    # wsa.close()
+
+    app.config.from_object(Config())
+    db = SQLAlchemy()
+    app.config['SQLALCHEMY_DATABASE_URI'] = ("sqlite:///" + str(app.config.get("getCode",None)))
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'connect_args': {'check_same_thread': False, 'timeout': 20}
+}
+    #db.app = app
+    db.init_app(app)
+    with app.app_context():
+        db.create_all()
+    class User(db.Model):
+        """User model."""
+
+        id = db.Column(db.Integer, primary_key=True)  # noqa: A003, VNE003
+        username = db.Column(db.String(80), unique=True)
+        email = db.Column(db.String(120), unique=True)
+
+    import os
+    import ctypes
+    import pythoncom
+    import win32com.client
+    #import win32serviceutil
+    #import win32event
+    #import win32service
+    #import servicemanager
+
+    # initialize scheduler
+
+    a_scheduler = APScheduler()
+    b_scheduler = APScheduler()  
+    c_scheduler = APScheduler()  
+    
+    b_scheduler.start()
+    # if you don't wanna use a config, you can set options here:
+    a_scheduler.api_enabled = True
+    a_scheduler.init_app(app)
+    #c_scheduler.api_enabled = True
+    #c_scheduler.init_app(app)
+    Base = declarative_base()
+
+    # class HostService(win32serviceutil.ServiceFramework):
+    #     _svc_name_ = "ApnaBackup Client"
+    #     _svc_display_name_ = "ApnaBackup Client as a Service"
+    #     _svc_description_ = "Runs ApnaBackup Client as a Windows service."
+
+    #     def __init__(self, args):
+    #         win32serviceutil.ServiceFramework.__init__(self, args)
+    #         self.hWaitStop = win32event.CreateEvent(None, 0, 0, None)
+    #         self.app = app
+    #         socket.setdefaulttimeout(6000)
+
+    #     def SvcStop(self):
+    #         self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+    #         win32event.SetEvent(self.hWaitStop)
+
+    #     def SvcDoRun(self):
+    #         servicemanager.LogMsg(
+    #             servicemanager.EVENTLOG_INFORMATION_TYPE,
+    #             servicemanager.PYS_SERVICE_STARTED,
+    #             (self._svc_name_, ""),
+    #         )
+    #         self.run_flask_app()
+
+    #     def run_flask_app(self):
+    #         # app = Flask(__name__)
+
+    #         # @app.route("/")
+    #         # def index():
+    #         #     return "Hello, Flask App!"
+
+    #         # # Start Flask app
+    #         # #app.run(host='0.0.0.0', port=5000)
+    #         while True:
+    #             self.app.run(host="0.0.0.0", port=7777, debug=False, use_reloader=False)
+
+    def add_to_startup(file_path):
+        # Function to add the service to Windows startup
+        key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            import winreg as reg
+
+            reg_key = reg.OpenKey(reg.HKEY_CURRENT_USER, key, 0, reg.KEY_SET_VALUE)
+            reg.SetValueEx(reg_key, "FlaskAppService", 0, reg.REG_SZ, file_path)
+            reg.CloseKey(reg_key)
+            #servicemanager.LogInfoMsg("Added to startup successfully!")
+        except Exception as e:
+            #servicemanager.LogErrorMsg("Error adding to startup: %s" % str(e))
+            print("Error adding to startup: %s" % str(e))
+    def default_ist():
+        from zoneinfo import ZoneInfo        
+        return datetime.now(pytz.timezone("Asia/Kolkata"))
+    
+    from sqlalchemy import event
+    from datetime import datetime
+    import pytz
+    ist = pytz.timezone("Asia/Kolkata")
+    class MissedJob(Base):
+        from sqlalchemy import create_engine, Column, Integer, String, DateTime
+        from sqlalchemy.ext.declarative import declarative_base
+        __tablename__ = "missed_jobs"
+
+        id = Column(Integer, primary_key=True)
+        job_id = Column(String)
+        job_name = Column(String)
+        job_folder = Column(String)
+        job_repo = Column(String)
+        error_desc = Column(String)
+        computerId = Column(String, default=str(app.config.get("getCode",None)))
+        computerName = Column(String, default=str(app.config.get("getCodeHost",None)))
+        missed_time = Column(DateTime, default=datetime.utcnow)#datetime.datetime.utcnow)
+        create_time = Column(DateTime, default=datetime.utcnow)#datetime.datetime.utcnow) 
+
+        # @classmethod
+        # def to_dict(self):
+        #     job_dict = {
+        #         "id": self.id,
+        #         "job_id": self.job_id,
+        #         "job_name": self.job_name,
+        #         "job_folder": self.job_folder,
+        #         "error_desc": self.error_desc,
+        #         "job_repo": self.job_repo, 
+        #         "computerId": self.computerId,
+        #         "computerName": self.computerName, 
+        #         "missed_time": self.missed_time ,
+        #         "create_time": self.create_time.replace(tzinfo=pytz.utc).astimezone(ist).strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None
+        #     }
+        #     return job_dict
+
+    
+    class DoneJob(Base):
+        from sqlalchemy import create_engine, Column, Integer, String, DateTime
+        from sqlalchemy.ext.declarative import declarative_base
+
+        __tablename__ = "done_jobs"
+
+        id = Column(Integer, primary_key=True)
+        job_id = Column(String)
+        job_name = Column(String)
+        job_folder = Column(String)
+        job_repo = Column(String)
+        computerId = Column(String, default=str(app.config.get("getCode",None)))
+        computerName = Column(String, default=str(app.config.get("getCodeHost",None)))
+        done_time = Column(DateTime, default=datetime.utcnow)#default_ist)#
+        create_time = Column(DateTime, default=datetime.utcnow)#default_ist)#datetime.datetime.utcnow)
+        # @classmethod
+        # def to_dict(self):
+        #     job_dict = {
+        #         "id": self.id,
+        #         "job_id": self.job_id,
+        #         "job_name": self.job_name,
+        #         "job_folder": self.job_folder,
+        #         "job_repo": self.job_repo, 
+        #         "computerId": self.computerId,
+        #         "computerName": self.computerName, 
+        #         "done_time": self.done_time ,
+        #         "create_time": self.create_time.replace(tzinfo=pytz.utc).astimezone(ist).strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None
+        #     }
+        #     return job_dict
+
+    class JobProfiles(Base):
+        from sqlalchemy import create_engine, Column, Integer, String, DateTime
+        from sqlalchemy.ext.declarative import declarative_base
+
+        __tablename__ = "job_profiles"
+
+        id = Column(Integer, primary_key=True)
+        profile_id = Column(String)
+        profile_name = Column(String)
+        job_id = Column(String)
+        job_name = Column(String)
+        computerId = Column(String, default=str(app.config.get("getCode",None)))
+        computerName = Column(String, default=str(app.config.get("getCodeHost",None)))
+        profile_data = Column(String)
+        entry_create_time = Column(DateTime, default=default_ist)#datetime.datetime.utcnow)
+        entry_modify_time = Column(DateTime, default=default_ist)#datetime.datetime.utcnow)
+    
+    # @event.listens_for(MissedJob, "load")
+    # def receive_load_DoneJob(target, context):
+    #     if target.create_time:
+    #         target.create_time = target.create_time.replace(tzinfo=pytz.utc).astimezone(ist)
+    #     if target.done_time:
+    #         target.done_time = target.done_time.replace(tzinfo=pytz.utc).astimezone(ist)
+    
+    # @event.listens_for(MissedJob, "load")
+    # def receive_load_MissedJob(target, context):
+    #     if target.create_time:
+    #         target.create_time = target.create_time.replace(tzinfo=pytz.utc).astimezone(ist)
+    #     if target.missed_time:
+    #         target.missed_time = target.missed_time.replace(tzinfo=pytz.utc).astimezone(ist)
+
+    #class restore_child(db.Model):
+    class restore_child(Base):
+        from sqlalchemy import create_engine, Column, Integer, String, DateTime,Float
+        from sqlalchemy.ext.declarative import declarative_base
+
+        __tablename__ = "restores"
+
+        id = Column(Integer, primary_key=True,autoincrement=True)
+        RestoreLocation = Column(String(255), nullable=False)
+        backup_id = Column(Float(255), nullable=False)
+        backup_file_id = Column(Float(255), nullable=False)
+        backup_name = Column(String(255), nullable=False)        
+        p_id = Column(Float(255))
+        file = Column(String(255), nullable=False)
+        file_restore_time = Column(Float(255), nullable=False)
+        file_start = Column(String(255), nullable=False)
+        file_end = Column(String(255), nullable=False)
+        from_backup_pc = Column(String(255), nullable=False)
+        reason = Column(String(255), nullable=False)
+        restore = Column(String(255), nullable=False)
+        storage_type = Column(String(255), nullable=False)
+        t14 = Column(Float(255), nullable=False)
+        targetlocation = Column(String(255), nullable=False)
+        torestore_pc = Column(String(255), nullable=False)
+
+        def __repr__(self):
+            return f"<FileRecord {self.file}, {self.fileurl}>"
+    
+    #class restore_parent(db.Model):
+    class restore_parent(Base):
+        from sqlalchemy import create_engine, Column, Integer, String, DateTime,Float
+        from sqlalchemy.ext.declarative import declarative_base
+
+        __tablename__ = "restoreM"
+
+        id = Column(Integer, primary_key=True,autoincrement=True)
+        RestoreLocation = Column(String(255), nullable=False)
+        backup_id = Column(Float(255), nullable=False)
+        storage_type = Column(String(255), nullable=False)
+        backup_name = Column(String(255), nullable=False)
+        p_id = Column(Float(255))
+        t14 = Column(Float(255), nullable=False)
+        from_backup_pc = Column(String(255), nullable=False)
+        targetlocation = Column(String(255), nullable=False)
+        torestore_pc = Column(String(255), nullable=False)
+    
+    from sqlalchemy import create_engine
+
+    # engine = create_engine("sqlite:///flask_context.db")
+    engine = create_engine("sqlite:///" + str(app.config.get("getCode",None)),pool_size=30,max_overflow=20)
+    
+    # engine.echo = TRUE
+    Base.metadata.create_all(engine)
+    with app.app_context():
+        db.create_all()
+    
+    qrs = [
+            (
+                str(app.config.get("getCode",None)),
+                [
+                    "ALTER TABLE missed_jobs ADD job_folder VARCHAR", 
+                    "ALTER TABLE done_jobs ADD job_folder VARCHAR", 
+
+                    "ALTER TABLE missed_jobs ADD job_repo VARCHAR",  
+                    "ALTER TABLE done_jobs ADD job_repo VARCHAR",  
+                    
+                    "ALTER TABLE missed_jobs ADD computerName VARCHAR",  
+                    "ALTER TABLE done_jobs ADD computerName VARCHAR", 
+                    "ALTER TABLE job_profiles ADD computerName VARCHAR", 
+                    "ALTER TABLE restores ADD p_id FLOAT",
+                    "ALTER TABLE restoreM ADD p_id FLOAT",
+                 ],
+            )
+        ]
+    s_manager = SQLiteManager()
+    results = s_manager.execute_queries(qrs)
+
+    @c_scheduler.task(
+        "interval",
+        id=str(app.config.get("getCodea",None)),
+        name=str(app.config.get("getCodea",None)),
+        seconds=160,
+    )
+    def hba():
+        # try:
+        #     requests.get("http://127.0.0.1:7777")
+        # except:
+        #     pass
+        # try:
+        #     requests.get("http://127.0.0.1:53335")
+        # except:
+        #     pass
+        # try:
+        #     requests.get("http://127.0.0.1:5000")
+        # except:
+        #     pass
+        pass
+
+    @c_scheduler.task(
+        "interval",
+        id="checkdownload",
+        name="checkdownload",
+        seconds=1*60*60*4,
+    )
+    def checkdownload():
+        d = os.path.join(app.config["location"], "abc.exe")
+        d = app.config.get("exepath", os.path.join(app.config["location"], "abc.exe"))
+
+        from fClient.views import check_download
+
+        return check_download(d)
+
+    @b_scheduler.task(
+        "interval",
+        id="DNA",
+        name="DNA",
+        seconds=10* 60 * 60,
+        misfire_grace_time=60 * 24 * 60 * 60,coalesce=True
+    )
+    def dna(): 
+        # from fClient.modules1 import dww
+        # ti1= int(time.time())+5
+        # if app.config.get("server", None) == None:
+        #     if (int(time())>int(ti1)) :
+        #         dww()                
+        #         ti1= int(time())+5
+        try:
+            set_time_zone_and_enable_windows_time_sync()
+        except:
+            print("asdf)")
+
+
+    @c_scheduler.task(
+        "interval",
+        id="tellme",
+        name="tellme",
+        seconds=200,
+        # misfire_grace_time=2 * 24 * 60 * 60,
+    )
+    def show_me():
+        show_me_c()
+
+    def succ_listener(event):
+
+        if event.job_id in ["misfires", "tellme", "checkdownload", getCodea()]:
+            return
+            print("")
+        import logging
+
+        print("JOB => " + event.job_id)
+        # logging.DEBUG("Done ")
+
+        now = time.time()
+        from sqlalchemy.orm import sessionmaker
+        from apscheduler.job import Job
+
+        session = sessionmaker(bind=engine)()
+
+        now = time.time()
+
+        job_metadata = app.config['JOB_METADATA']
+        job_name=""
+        job_folder=""
+        job_repo=""
+
+
+        try:
+            j = a_scheduler.get_job(event.job_id)
+            if j:
+                job_name=j.name
+                job_folder=j.args[0]
+                job_repo=j.args[3]
+            else:
+                if event.job_id in job_metadata:
+                    details = job_metadata[event.job_id]
+                    job_name= details.get("name","")
+                    job_repo= details.get("repo","")
+                    job_folder= details.get("src_path","")
+            done_job = DoneJob(
+                job_id=event.job_id, job_name=job_name, done_time=event.scheduled_run_time,job_folder=job_folder,job_repo=job_repo
+            )
+            q = session.query(DoneJob).filter_by(
+                job_id=done_job.job_id, job_name =done_job.job_name, done_time=done_job.done_time,job_folder=job_folder,job_repo=job_repo
+            )
+            
+            # x = "Job {j.name} on computer '"+ m_j["agent"] + "' has failed "
+            # x = x + "to run at "+ m_j["missed_time"]+"' "
+            # x = x + "due to reason '" +m_j["error_desc"]+ "' "
+            # x = x + "reason description is '" +str(event.exception)+ "'."
+            
+            done_jobs_json = []
+
+            if q is None:
+                print("no data found")
+                session.add(done_job)
+                session.commit()
+            else:
+                for job in q:
+                    job_dict = {
+                        column.name: getattr(job, column.name)
+                        for column in job.__table__.columns
+                    }
+                    done_jobs_json.append(job_dict)
+                try:
+                    if len(done_jobs_json) <= 0:
+                        session.add(done_job)
+                        session.commit()
+                except Exception as dd:
+                    print(str(dd))
+                # print(f"Missed job: {event.job_id} at {event.scheduled_run_time}")
+            
+        except:
+            session.rollback()
+            pass
+        
+        count_success = 0
+        try:
+            count_success = session.query(DoneJob).count()
+        except Exception:
+            pass
+        finally:
+            session.close()
+        m_j = {
+            "agent": str(app.config.get("getCodeHost",None)),
+            "idx":str(app.config.get("getCode",None)),
+            "event":"success",
+            "job_id":event.job_id,
+            "job_name":job_name,
+            "error_desc":str(event.exception),
+            "missed_time":str(event.scheduled_run_time),
+            "succeed_count":count_success,
+        }
+        res = requests.post(
+            "http://"
+            + app.config["server_ip"]
+            + ":"
+            + str(app.config["server_port"])
+            + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+            json=m_j,
+            #headers=headers,
+            #timeout=5000,
+        )
+        app.config["total_failed_jobs"] = count_success
+        print(res.content)
+
+    def err_listener(event):
+        if event.exception:
+            if event.job_id in ["misfires", "tellme", "checkdownload", getCodea()]:
+                #return
+                print("")
+            import logging
+
+            job_metadata = app.config['JOB_METADATA']
+            job_name=""
+            job_folder=""
+            job_repo=""
+
+            logging.error("Job failed with exception: %s", event.exception)
+
+            now = time.time()
+            from sqlalchemy.orm import sessionmaker
+            from apscheduler.job import Job
+
+            session = sessionmaker(bind=engine)()
+
+            now = time.time()
+            j = a_scheduler.get_job(event.job_id)
+            if j:
+                job_name=j.name
+                try:
+                    job_folder=j.args[0]
+                except:
+                    print("")
+                try:
+                    job_repo=j.args[3]
+                except:
+                    print("")
+            else:
+                if event.job_id in job_metadata:
+                    details = job_metadata[event.job_id]
+                    job_name= details.get("name")
+                    job_repo= details.get("repo","")
+                    job_folder= details.get("src_path","")
+            try:
+               
+                try:
+                    if j:
+                        j.reschedule(j.trigger)
+                except Exception as errS:
+                    print("d")
+
+                missed_job = MissedJob(
+                    job_id=event.job_id,
+                    job_name=job_name,
+                    error_desc=str(event.exception),
+                    missed_time=event.scheduled_run_time, 
+                    job_folder = job_folder,
+                    job_repo=job_repo,
+                )
+
+                q = session.query(MissedJob).filter_by(
+                    job_id=event.job_id,
+                    job_name=job_name,
+                    error_desc=str(event.exception),
+                    missed_time=event.scheduled_run_time, 
+                    job_folder = job_folder,
+                    job_repo=job_repo,
+                )
+                q=None
+                if q is None:
+                    session.add(missed_job)
+                    print(f"Missed job: {event.job_id} at {event.scheduled_run_time}")
+                    session.commit()
+            except Exception as err:
+                print (err)
+                pass
+            
+            
+            if j:
+                job_name=j.name
+            else:
+                if event.job_id in job_metadata:
+                    details = job_metadata[event.job_id]
+                    job_name= details.get("name")
+
+            count_missed = 0
+            try:
+                count_missed = session.query(MissedJob).count()
+            except Exception:
+                pass
+            finally:
+                session.close()
+            m_j = {
+                "agent": str(app.config.get("getCodeHost",None)),
+                "idx":str(app.config.get("getCode",None)),
+                "event":"error",
+                "job_id":event.job_id,
+                "job_name":job_name,
+                "error_desc":str(event.exception),
+                "missed_time":str(event.scheduled_run_time,),
+                "failed_count":count_missed
+            }
+            res = requests.post(
+                "http://"
+                + app.config["server_ip"]
+                + ":"
+                + str(app.config["server_port"])
+                + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+                json=m_j,
+                #headers=headers,
+                timeout=5000,
+            )
+            app.config["total_failed_jobs"] = count_missed
+
+            print(res.content)
+    
+    def scheduler_listener(event):
+        msg_event=""
+        if event.code == EVENT_SCHEDULER_STARTED:
+            msg_event="started"
+        if event.code == EVENT_SCHEDULER_PAUSED:
+            msg_event="jobpause"
+        if event.code == EVENT_SCHEDULER_RESUMED:
+            msg_event="jobplay"
+        if event.code == EVENT_SCHEDULER_SHUTDOWN:
+            msg_event="shutdown"
+
+        m_j = {
+            "agent": str(app.config.get("getCodeHost",None)),
+            "idx":str(app.config.get("getCode",None)),
+            "event":msg_event, #"error",
+            "job_id":"All Jobs",
+            "job_name":"All Jobs",
+            "error_desc":"",
+            "missed_time":""
+        }
+        res = requests.post(
+            "http://"
+            + app.config["server_ip"]
+            + ":"
+            + str(app.config["server_port"])
+            + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+            json=m_j,
+            #headers=headers,
+            timeout=5000,
+        )
+        print(res.content)
+
+    def all_jobs_removed_listener(event):
+        m_j = {
+            "agent": str(app.config.get("getCodeHost",None)),
+            "idx":str(app.config.get("getCode",None)),
+            "event":"jobdelete",
+            "job_id":"All Jobs Deleted",
+            "job_name":"All Jobs Deleted",
+            "error_desc":"",
+            "missed_time":""
+        }
+        res = requests.post(
+            "http://"
+            + app.config["server_ip"]
+            + ":"
+            + str(app.config["server_port"])
+            + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+            json=m_j,
+            #headers=headers,
+            timeout=5000,
+        )
+        print(res.content)
+    
+    def job_added_listener(event):
+        j= a_scheduler.get_job(event.job_id)
+        m_j = {
+            "agent": str(app.config.get("getCodeHost",None)),
+            "idx":str(app.config.get("getCode",None)),
+            "event":"jobadd",
+            "job_id":str(j.id),
+            "job_name":str(j.name),
+            "error_desc":"",
+            "missed_time":""
+        }
+        res = requests.post(
+            "http://"
+            + app.config["server_ip"]
+            + ":"
+            + str(app.config["server_port"])
+            + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+            json=m_j,
+            #headers=headers,
+            timeout=5000,
+        )
+        print(res.content)
+    
+    def job_removed_listener(event):
+        #j= a_scheduler.get_job(event.job_id)
+
+        from datetime import datetime
+
+        # datetime object containing current date and time
+        now = datetime.now()
+ 
+        print("now =", now)
+
+        # dd/mm/YY H:M:S
+        dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+        print("date and time =", dt_string)
+
+        j =app.config['JOB_METADATA'][event.job_id]
+
+        m_j = {
+            "agent": str(app.config.get("getCodeHost",None)),
+            "idx":str(app.config.get("getCode",None)),
+            "event":"jobdelete",
+            "job_id":str(event.job_id),
+            "job_name":j["name"],
+            "error_desc":"",
+            "missed_time":dt_string
+        }
+        res = requests.post(
+            "http://"
+            + app.config["server_ip"]
+            + ":"
+            + str(app.config["server_port"])
+            + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+            json=m_j,
+            #headers=headers,
+            timeout=5000,
+        )
+        print(res.content)
+    
+    def job_modified_listener(event):
+        j= a_scheduler.get_job(event.job_id)
+        m_j = {
+            "agent": str(app.config.get("getCodeHost",None)),
+            "idx":str(app.config.get("getCode",None)),
+            "event":"jobreschedule",
+            "job_id":str(j.id),
+            "job_name":str(j.name),
+            "error_desc":str(j.trigger),
+            "missed_time":str(j.next_run_time)
+        }
+        res = requests.post(
+            "http://"
+            + app.config["server_ip"]
+            + ":"
+            + str(app.config["server_port"])
+            + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+            json=m_j,
+            #headers=headers,
+            timeout=5000,
+        )
+        print(res.content)
+    
+    def job_submitted_listener(event):
+        pass
+
+    from sqlalchemy.orm import sessionmaker
+    from contextlib import contextmanager
+    from apscheduler.job import Job
+    from threading import Lock
+
+    SessionLocal = sessionmaker(
+    bind=engine,
+    autoflush=False,
+    autocommit=False,
+    expire_on_commit=False,
+)
+
+    @contextmanager
+    def get_db_session():
+        """
+        Guaranteed-safe DB session handler.
+        Prevents session leaks and dangling connections.
+        """
+        session = SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    
+    def record_missed_job(job: Job):
+        """
+        Writes missed job record using a short-lived,
+        controlled DB session.
+        """
+        missed_job = MissedJob(
+            job_id=job.id,
+            job_name=job.name,
+            missed_time=job.next_run_time,
+            error_desc="time missed",
+        )
+
+        with get_db_session() as session:
+            session.merge(missed_job)
+    
+    _socket_lock = Lock()
+
+    def send_resume_signal():
+        """
+        Safely sends resume signal without creating
+        repeated or parallel socket connections.
+        """
+        with _socket_lock:
+            try:
+                if not cl_socketio_obj.connected:
+                    cl_socketio_obj.connect(
+                        f"http://{app.config['server_ip']}:{app.config['server_port']}",
+                        wait=True,
+                    )
+
+                cl_socketio_obj.emit(
+                    "message",
+                    {"agent": getCodea(), "action": "resume"},
+                )
+
+            except Exception as e:
+                logger.warning(f"Socket resume failed: {e}")
+
+            finally:
+                try:
+                    if cl_socketio_obj.connected:
+                        cl_socketio_obj.disconnect()
+                except Exception:
+                    pass
+
+    @c_scheduler.task(
+        "interval", id="misfires", name="misfires", seconds=5*60, misfire_grace_time=900
+    )
+    def misfires():
+        # from fClient.cktio import cl_socketio_obj
+
+        # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        # succ_listener
+        # now = time.time()
+        # from sqlalchemy.orm import sessionmaker
+        # from apscheduler.job import Job
+
+        for job in a_scheduler.get_jobs():
+            now = time.time()
+            try:
+                if job.next_run_time:
+                    if (
+                        isinstance(job, Job)
+                        and job.next_run_time.timestamp()
+                        and job.next_run_time.timestamp() < now
+                    ):
+                        # missed_job = MissedJob(
+                        #     job_id=job.id, job_name=job.name, missed_time=job.next_run_time,error_desc="time missed"
+                        # )
+                        # session = sessionmaker(bind=engine)()
+                        # #session.add(missed_job)
+                        # session.merge(missed_job)
+                        # session.commit()
+                        # session.close()
+
+                        record_missed_job(job)
+
+                        print(f"Missed job: {job.id} at {job.next_run_time}")
+                else:
+                    # if not cl_socketio_obj.connected:
+                    #     try:
+                    #         cl_socketio_obj.connect(
+                    #             f"http://{app.config['server_ip']}:{app.config['server_port']}",
+                    #             wait=True,
+                    #         )
+                    #     except:
+                    #         pass
+                    # if cl_socketio_obj.connected:
+                    #     cl_socketio_obj.emit("message", {"agent": getCodea(), "action": "resume"})
+                    #     cl_socketio_obj.disconnect()
+
+                    send_resume_signal()
+
+            except:
+
+                print("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+                send_resume_signal()
+                # try:
+                #     # from fClient.cktio import cl_socketio_obj
+
+                #     if not cl_socketio_obj.connected:
+                #         try:
+                #             cl_socketio_obj.connect(
+                #                 f"http://{app.config['server_ip']}:{app.config['server_port']}",
+                #                 wait=True,
+                #             )
+                #         except:
+                #             pass
+                #     if cl_socketio_obj.connected:
+                #         cl_socketio_obj.emit("message", {"agent": getCodea(), "action": "resume"})
+                #         cl_socketio_obj.disconnect()
+                # except:
+                #     print("")
+
+    try:
+        if a_scheduler.running:
+            a_scheduler.shutdown(wait=False)  
+    except Exception as e:
+        print(str(e))
+
+    import pickle
+
+    
+    #a_scheduler.start()
+    a_scheduler.add_listener(err_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR)
+    a_scheduler.add_listener(succ_listener, EVENT_JOB_EXECUTED)
+    a_scheduler.add_listener(scheduler_listener,EVENT_SCHEDULER_STARTED|EVENT_SCHEDULER_PAUSED|EVENT_SCHEDULER_RESUMED|EVENT_SCHEDULER_SHUTDOWN )
+    a_scheduler.add_listener(all_jobs_removed_listener,EVENT_ALL_JOBS_REMOVED  )
+    a_scheduler.add_listener(job_added_listener,EVENT_JOB_ADDED  )
+    a_scheduler.add_listener(job_removed_listener,EVENT_JOB_REMOVED )
+    a_scheduler.add_listener(job_modified_listener, EVENT_JOB_MODIFIED)
+    a_scheduler.add_listener(job_submitted_listener,EVENT_JOB_SUBMITTED )
+    
+    a_scheduler.start()
+    c_scheduler.start()
+    try:
+        a_scheduler.resume()
+    except:
+        print("")
+    
+    import sys
+
+    create_default_jobs(a_scheduler, succ_listener, err_listener)
+
+    print("main..")
+    # if len(sys.argv) == 1:
+    #     sys.argv.append("--interactive")
+    #     sys.argv.append("remove")
+    #     # sys.argv.append("install")
+    #     # sys.argv.append("start")
+    # #     servicemanager.Initialize()
+    # #     servicemanager.PrepareToHostSingle(HostService)
+    # #     servicemanager.StartServiceCtrlDispatcher()
+    # # else:
+    # #     win32serviceutil.HandleCommandLine(HostService)
+    # try:
+    #     win32service.SERVICE_CONTROL_PAUSE
+    #     win32serviceutil.HandleCommandLine(HostService)
+    # except Exception as exp:
+    #     print("ERR " + str(exp))
+
+    PORT=7777
+    
+    # "http://"+ app.config["server_ip"]+ ":"+ str(app.config["server_port"]) + "/create_database"
+    threading.Thread(
+        target=lambda: requests.post(
+            "http://" + app.config["server_ip"] + ":" + str(app.config["server_port"]) + "/create_database",
+            json={
+                "database_name": os.path.join(
+                    "{{PATH}}", f"{app.config['getCode']}.db"
+                )
+            },
+        ),
+        daemon=True,
+    ).start()
+    threading.Thread(
+        target=run_ws,
+        kwargs={"r_clx": r_cl},
+        daemon=True,
+    ).start()
+
+    
+    # executor = ThreadPoolExecutor(max_workers=2)
+    # executor.submit(create_database_thread)
+    # executor.submit(run_ws_thread)
+    
+    # futures_executor = [
+    #     executor.submit(create_database_thread),
+    #     executor.submit(run_ws_thread),
+    # ]
+
+    # # Wait for all tasks to finish
+    # for future in as_completed(futures_executor):
+    #     try:
+    #         result = future.result()  # This will raise exception if task failed
+    #     except Exception as e:
+    #         print(f"Task failed: {e}")
+    # del futures_executor
+    # # Shutdown executor and monitor
+    # executor.shutdown()
+
+    from sqlalchemy.orm import sessionmaker
+    session = sessionmaker(bind=engine)()
+    count_missed = 0
+    try:
+        count_missed = session.query(MissedJob).count()
+    except Exception:
+        pass
+    m_j = {
+        "agent": str(app.config.get("getCodeHost",None)),
+        "idx":str(app.config.get("getCode",None)),
+        "event":"error",
+        "failed_count":count_missed
+    }
+    res = requests.post(
+        "http://"
+        + app.config["server_ip"]
+        + ":"
+        + str(app.config["server_port"])
+        + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+        json=m_j,
+        #headers=headers,
+        timeout=5000,
+    )
+    app.config["total_failed_jobs"] = count_missed
+
+    count_success = 0
+    try:
+        count_success = session.query(DoneJob).count()
+    except Exception:
+        pass
+    finally:
+        session.close()
+    m_j = {
+        "agent": str(app.config.get("getCodeHost",None)),
+        "idx":str(app.config.get("getCode",None)),
+        "event":"success",
+        "succeed_count":count_success,
+    }
+    res = requests.post(
+        "http://"
+        + app.config["server_ip"]
+        + ":"
+        + str(app.config["server_port"])
+        + "/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
+        json=m_j,
+        #headers=headers,
+        #timeout=5000,
+    )
+    app.config["total_failed_jobs"] = count_success
+
+    #run_ws(r_clx=r_cl)
+    # Run in a thread
+    # thread = threading.Thread(target=run_ws)
+    # thread.daemon = True
+    # thread.start() 
+    #run_ws(r_clx=r_cl)   
+    
+    # app.run(host="0.0.0.0", port=7777, debug=True, use_reloader=True)#, threaded=True)#,ssl_context=(CERT_FILE, KEY_FILE))
+
+    app.run(
+        host="0.0.0.0",
+        port=7777,
+        debug=DEBUG_MODE,
+        use_reloader=DEBUG_MODE,
+        use_evalex=DEBUG_MODE,
+        threaded=True,
+    )  # ,ssl_context=(CERT_FILE, KEY_FILE))
+    
+
+    # from gevent.pywsgi import WSGIServer
+
+    # http_server = WSGIServer(('', PORT), app,)
+    # http_server.serve_forever()
+
+    # from waitress import serve
+    # import multiprocessing
+    # cpu_count = multiprocessing.cpu_count()
+    # threads = max(8, cpu_count * 2)  # Ensuring at least 8 threads
+    
+    # #serve(app, host="0.0.0.0", port=PORT, threads=8)
+    # serve(app, host="0.0.0.0", port=PORT, threads=threads, channel_timeout=120, outbuf_overflow=524288, inbuf_overflow=524288)
+    #serve(app, host="0.0.0.0", port=PORT, threads=threads, channel_timeout=120, outbuf_overflow=524288, inbuf_overflow=524288,)
+
+
+    # from waitress import serve
+    # serve(app, host="0.0.0.0", port=PORT, threads=8)
+    # sktio.run(app, host="0.0.0.0", port=7777, debug=True, use_reloader=False)

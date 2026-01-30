@@ -1,0 +1,43 @@
+[
+    {
+        "path": "Backups\\01.06.24.7.00",
+        "contents": [
+            {
+                "id": "kartik",
+                "path": "Backups\\01.06.24.7.00\\kartik",
+                "name": "kartik",
+                "type": "directory",
+                "size": 0,
+                "last_modified": "2024-06-01T18:50:52.853977",
+                "mimetype": "application/octet-stream"
+            },
+            {
+                "id": "Omprakash",
+                "path": "Backups\\01.06.24.7.00\\Omprakash",
+                "name": "Omprakash",
+                "type": "directory",
+                "size": 0,
+                "last_modified": "2024-06-01T18:50:37.807161",
+                "mimetype": "application/octet-stream"
+            },
+            {
+                "id": "Ronak",
+                "path": "Backups\\01.06.24.7.00\\Ronak",
+                "name": "Ronak",
+                "type": "directory",
+                "size": 0,
+                "last_modified": "2024-06-01T18:50:59.728979",
+                "mimetype": "application/octet-stream"
+            },
+            {
+                "id": "vikash",
+                "path": "Backups\\01.06.24.7.00\\vikash",
+                "name": "vikash",
+                "type": "directory",
+                "size": 0,
+                "last_modified": "2024-06-01T18:50:38.103981",
+                "mimetype": "application/octet-stream"
+            }
+        ]
+    }
+]
