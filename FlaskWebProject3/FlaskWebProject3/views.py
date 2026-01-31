@@ -10547,11 +10547,7 @@ def restore_nodes():
             if e["idx"] in  app.config["agent_activation_keys"]:
                 x= search_clientnodes_x_nodes(e["idx"])
                 if x:
-                    # flag=is_less_than_2_minutes(float(x['lastConnected']))
-                    from datetime import datetime, timedelta
-                    current_time = datetime.now()
-                    epoch_time = datetime.fromtimestamp(float(x['lastConnected']))
-                    flag =(current_time - epoch_time).seconds > 120
+                    flag = is_less_than_2_minutes(str(x["ipAddress"]))
                     endpoints.append({"idx":x["key"],"agent":x["agent"],"ipAddress":x["ipAddress"],"lastConnected":str(flag)})
                 else:
                     endpoints.append({"idx":e["idx"],"agent":e["agent"],"ipAddress":e["idx"],"lastConnected":str(True)})
