@@ -1,0 +1,293 @@
+.endpoint-container {
+    /* margin: 0 auto; */
+    /* padding: 20px; */
+    margin-top: -15px;
+    height: 244px;
+    width: 100%;
+}
+
+.endpoint-change-endpoint-btn-1 {
+    position: absolute;
+    top: 54%;
+    right: 48%;
+}
+
+.add-location-btn-1 {
+    position: absolute;
+    top: 54%;
+    right: 38%;
+}
+
+.endpoint-table-container {
+    background: white;
+    border-radius: 8px;
+    /* box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); */
+    overflow: hidden;
+    margin-bottom: 20px;
+    width: 100%;
+    overflow: auto;
+    z-index: 0;
+    /* border: 0.5px solid #808080; */
+}
+
+.endpoint-compact-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.endpoint-compact-table thead {
+    background: #495057;
+    color: white;
+}
+
+.alert-box-highlight {
+    position: absolute;
+    top: 155px;
+    z-index: 9999;
+
+}
+
+/* .endpoint-compact-table th {
+  padding: 12px 15px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+} */
+
+.endpoint-compact-table th {
+    position: sticky;
+    top: 0;
+    background: #495057;
+    /* Re-apply for sticky effect */
+    color: white;
+    padding: 12px 15px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    /* text-transform: uppercase; */
+    letter-spacing: 0.5px;
+    z-index: 2;
+}
+
+.add-location-btn {
+    position: absolute;
+    top: 187px;
+    right: 118px;
+}
+
+.endpoint-compact-table th:first-child {
+    width: 50px;
+    text-align: center;
+}
+
+.endpoint-compact-table th:nth-child(2) {
+    width: 120px;
+}
+
+.endpoint-compact-table th:nth-child(3) {
+    width: auto;
+}
+
+.endpoint-compact-table th:last-child {
+    width: 100px;
+    text-align: center;
+}
+
+.endpoint-compact-table tbody tr {
+    border-bottom: 1px solid #e9ecef;
+    transition: background-color 0.2s ease;
+}
+
+.endpoint-compact-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.endpoint-compact-table td {
+    padding: 5px;
+    vertical-align: middle;
+}
+
+.endpoint-row-number {
+    text-align: center;
+    font-weight: 600;
+    color: #6c757d;
+    font-size: 14px;
+}
+
+.endpoint-path-type-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.endpoint-path-type-badge.user {
+    background: #d4edda;
+    color: #155724;
+}
+
+.endpoint-path-type-badge.system {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.endpoint-path-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.endpoint-folder-icon {
+    width: 16px;
+    height: 16px;
+    fill: #6c757d;
+    flex-shrink: 0;
+}
+
+.endpoint-path-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.endpoint-path-text {
+    font-family: 'Courier New', monospace;
+    color: #495057;
+    font-size: 13px;
+    margin-bottom: 2px;
+    word-break: break-all;
+}
+
+.endpoint-path-size {
+    font-size: 11px;
+    color: #6c757d;
+}
+
+.endpoint-remove-btn {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 5px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: all 0.2s ease;
+}
+
+.endpoint-remove-btn:hover {
+    background: #c82333;
+    transform: translateY(-1px);
+}
+
+.endpoint-table-actions {
+    padding: 15px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.endpoint-table-info {
+    color: #6c757d;
+    font-size: 13px;
+}
+
+.endpoint-change-endpoint-btn {
+    position: absolute;
+    top: 187px;
+    right: 250px;
+}
+
+.endpoint-change-endpoint-btn:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+}
+
+.endpoint-navigation {
+    display: flex;
+    justify-content: space-between;
+    gap: 15px;
+}
+
+.endpoint-nav-btn {
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.endpoint-nav-btn.previous {
+    background: #6c757d;
+    color: white;
+}
+
+.endpoint-nav-btn.previous:hover {
+    background: #5a6268;
+}
+
+.endpoint-nav-btn.continue {
+    background: #007bff;
+    color: white;
+}
+
+.endpoint-nav-btn.continue:hover {
+    background: #0056b3;
+}
+
+.endpoint-empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #6c757d;
+}
+
+.endpoint-empty-state svg {
+    width: 48px;
+    height: 48px;
+    fill: #dee2e6;
+    margin-bottom: 15px;
+}
+
+@media (max-width: 768px) {
+    .endpoint-container {
+        padding: 15px;
+    }
+
+    .endpoint-compact-table th,
+    .endpoint-compact-table td {
+        padding: 10px 8px;
+    }
+
+    .endpoint-compact-table {
+        font-size: 12px;
+    }
+
+    .endpoint-path-text {
+        font-size: 11px;
+    }
+
+    .endpoint-table-actions {
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+    }
+
+    .endpoint-navigation {
+        flex-direction: column;
+    }
+
+    .endpoint-nav-btn {
+        width: 100%;
+    }
+}

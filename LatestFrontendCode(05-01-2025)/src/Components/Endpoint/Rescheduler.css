@@ -1,0 +1,284 @@
+/* Container for the inline DatePicker to manage its layout */
+.endpoint-rescheduler .react-datepicker-popper {
+  position: static !important;
+  /* Make sure it doesn't pop out */
+  transform: none !important;
+  width: 100%;
+}
+
+.endpoint-rescheduler .react-datepicker {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  width: 100% !important;
+  display: flex !important;
+  /* Enable flex for date/time side-by-side */
+  border-radius: 12px !important;
+}
+
+/* Date Picker Side (Left) */
+.endpoint-rescheduler .react-datepicker__month-container {
+  flex: 1 !important;
+  /* Allow calendar to fill available space */
+  width: auto !important;
+  /* Remove fixed width constraints */
+  padding: 4px;
+}
+
+.endpoint-rescheduler .react-datepicker__navigation--next--with-time:not(.react-datepicker__navigation--next--with-today-button) {
+  right: 100px;
+}
+
+.endpoint-rescheduler .react-datepicker__header {
+  background: white !important;
+  border-bottom: none !important;
+  padding: 0 !important;
+}
+
+.endpoint-rescheduler .react-datepicker__current-month {
+  color: #1f2937 !important;
+  /* Darker text */
+  font-weight: 700 !important;
+  font-size: 1rem !important;
+  margin-bottom: 0 !important;
+  text-align: center !important;
+}
+
+.endpoint-rescheduler .react-datepicker__triangle {
+  display: none !important;
+}
+
+.endpoint-rescheduler .react-datepicker__navigation {
+  top: 0px !important;
+  width: 20px !important;
+  height: 20px !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.endpoint-rescheduler .react-datepicker__navigation:hover {
+  background: #eff6ff !important;
+  /* Light blue hover */
+}
+
+.endpoint-rescheduler .react-datepicker__navigation-icon::before {
+  border-color: #3b82f6 !important;
+  /* Blue navigation arrows */
+  border-width: 1px 1px 0 0 !important;
+  top: 10px !important;
+}
+
+.endpoint-rescheduler .react-datepicker__day-names {
+  background: white !important;
+  margin-bottom: 8px !important;
+  padding: 0 !important;
+}
+
+.endpoint-rescheduler .react-datepicker__day-name {
+  color: #6b7280 !important;
+  /* Gray text for day names */
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  /* width: 2.2rem !important; */
+  /* Smaller day cell width */
+  /* margin: 1px !important; */
+}
+
+.endpoint-rescheduler .react-datepicker__month {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: white !important;
+}
+
+/* .endpoint-rescheduler .react-datepicker__week {
+  margin-bottom: 2px !important;
+  display: flex;
+  justify-content: space-between;
+} */
+
+.endpoint-rescheduler .react-datepicker__day {
+  color: #374151 !important;
+  font-weight: 500 !important;
+  /* width: 2.2rem !important; */
+  /* height: 2.2rem !important; */
+  /* line-height: 2.2rem !important; */
+  /* margin: 1px !important; */
+  border-radius: 50% !important;
+  /* Circle style */
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.endpoint-rescheduler .react-datepicker__day-names,
+.endpoint-rescheduler .react-datepicker__week {
+  display: grid !important;
+  grid-template-columns: repeat(7, 1fr) !important;
+}
+
+/* Center labels inside each cell without fixed widths */
+.endpoint-rescheduler .react-datepicker__day-name,
+.endpoint-rescheduler .react-datepicker__day {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 2.2rem !important;
+  width: 70% !important;
+}
+
+.endpoint-rescheduler .react-datepicker__day:hover {
+  background: #eff6ff !important;
+  /* Light blue hover background */
+  color: #3b82f6 !important;
+  /* Blue text */
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Day selected style */
+.endpoint-rescheduler .react-datepicker__day--selected {
+  background: #3b82f6 !important;
+  color: white !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+  border-radius: 50% !important;
+}
+
+/* Current day style (Today) */
+.endpoint-rescheduler .react-datepicker__day--today {
+  background: #f3f4f6 !important;
+  color: #3b82f6 !important;
+  font-weight: 600 !important;
+  border: 1px solid #3b82f6 !important;
+  box-shadow: none !important;
+}
+
+.endpoint-rescheduler .react-datepicker__day--today:hover {
+  background: #eff6ff !important;
+  color: #3b82f6 !important;
+  border: 1px solid #3b82f6 !important;
+}
+
+.endpoint-rescheduler .react-datepicker__day--disabled {
+  color: #d1d5db !important;
+  background: transparent !important;
+}
+
+/* Time Picker Side (Right) */
+.endpoint-rescheduler .react-datepicker__time-container {
+  background: transparent !important;
+  border-left: 1px solid #e5e7eb !important;
+  padding: 0 !important;
+  /* Remove padding to save space */
+  width: 100px !important;
+  /* Fixed width for time column */
+  flex-shrink: 0 !important;
+  /* Prevent it from being squashed */
+  border-radius: 0 12px 12px 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-container .react-datepicker__time {
+  background: transparent !important;
+  width: 100% !important;
+  border-radius: 0 !important;
+}
+
+.endpoint-rescheduler .react-datepicker-time__header {
+  color: #1f2937 !important;
+  font-weight: 600 !important;
+  font-size: 0.85rem !important;
+  background: transparent !important;
+  text-align: center !important;
+  /* Center the header */
+  padding: 10px 0 8px 0 !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  margin-bottom: 0 !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list {
+  height: 265px !important;
+  /* Fixed height matching calendar */
+  overflow-y: auto !important;
+  padding: 8px 4px !important;
+  /* Add slight padding inside list */
+  margin-right: 0 !important;
+  /* REMOVED the negative margin causing the cut-off */
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1 !important;
+  border-radius: 4px !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list-item {
+  padding: 6px 4px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-weight: 500 !important;
+  font-size: 0.75rem !important;
+  border: 1px solid transparent !important;
+  /* Transparent border prevents jump on hover */
+  margin-bottom: 4px !important;
+  border-radius: 6px !important;
+  color: #374151 !important;
+  height: auto !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list-item:hover {
+  background: #eff6ff !important;
+  color: #3b82f6 !important;
+  border-color: #93c5fd !important;
+  /* Lighter blue border on hover */
+}
+
+.endpoint-rescheduler .react-datepicker__time-list-item--selected {
+  background: #3b82f6 !important;
+  color: white !important;
+  font-weight: 600 !important;
+  border-color: #3b82f6 !important;
+}
+
+/* Timezone/Footer (Simulated from the image) */
+.endpoint-rescheduler .react-datepicker__close-icon {
+  margin-top: 15px !important;
+  text-align: left !important;
+  color: #6b7280 !important;
+  font-size: 0.8rem !important;
+  display: block !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list-item--disabled {
+  color: #414243 !important;
+  background: #f9fafb !important;
+  cursor: not-allowed !important;
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+}
+
+.endpoint-rescheduler .react-datepicker__time-list-item--disabled:hover {
+  background: #f9fafb !important;
+  color: #414243 !important;
+  border-color: transparent !important;
+  cursor: not-allowed !important;
+}

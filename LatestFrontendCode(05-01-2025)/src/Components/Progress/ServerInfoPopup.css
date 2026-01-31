@@ -1,0 +1,359 @@
+.server-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    /* width: 100%; */
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.server-popup {
+    background: white;
+    border-radius: 8px;
+    /* width: 80%; */
+    max-width: 1200px;
+    padding: 25px;
+    max-height: 95%;
+    overflow-y: auto;
+    position: relative;
+}
+
+.close-btnnn {
+    color: #000;
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease-in-out;
+}
+
+.close-btnnn:hover{
+    color: #fff;
+    border-radius: 50%;
+    background-color: red;
+}
+
+.Server-header {
+    text-align: center;
+    font-weight: bold;
+    color: #000;
+}
+
+.ServerInfo-section {
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.Server-box {
+    background: #f9f9f9;
+    border-radius: 10px;
+    padding: 15px;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+}
+
+.device-info p {
+    /* margin: 3px 0; */
+    text-align: left;
+}
+
+.Server-chart-box {
+    position: relative;
+    background-color: #fff;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    box-shadow: 1px 5px 8px #ccc;
+    cursor: pointer;
+    font-size: small;
+    height: auto;
+    margin: 0;
+    padding: 10px;
+    transition: transform .3s ease-in-out;
+    width: auto;
+    text-align: center;
+}
+
+.device-info {
+    background-color: #fff;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    box-shadow: 1px 5px 8px #ccc;
+    cursor: pointer;
+    font-size: x-small;
+    /* height: auto; */
+    margin: 0;
+    padding: 10px;
+    transition: transform .3s ease-in-out;
+    /* width: 39%; */
+}
+
+.device-info h3 {
+    margin-bottom: 10px;
+    text-align: center;
+    font-size: 20px;
+    align-items: center;
+    background-color: #dcdcdc;
+    display: flex;
+    justify-content: center;
+}
+
+/* .ServerInfo-section div:hover{
+    transform: scale(1.1);
+} */
+
+.server-Loading-popup {
+    background: white;
+    border-radius: 8px;
+    width: 80%;
+    max-width: 1200px;
+    padding: 25px;
+    /* max-height: 95%; */
+    overflow-y: auto;
+    position: relative;
+    transform: translate(0, 10%);
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+    font-size: 20px;
+    text-align: center;
+}
+
+.serverLoader-popup-overlay {
+    position: fixed;
+    top: 0;
+    height: 100vh;
+    width: 100vw;
+    left: 0;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 999;
+}
+
+.resizable-popup {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    overflow-y: auto;
+    height: 100%;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+}
+
+.server-popup-drag-handle {
+    cursor: grabbing;
+    background: #007bff;
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.Server-procs-bar canvas {
+    display: unset !important;
+    align-self: center;
+    max-width: 200px;
+    max-height: 200px;
+}
+
+.Server-mem-bar canvas {
+    display: unset !important;
+    align-self: center;
+    max-width: 200px;
+    max-height: 200px;
+}
+
+.Server-disk-bar canvas {
+    height: auto !important;
+}
+
+.Server-disk-bar {
+    width: auto !important;
+}
+
+.Server-ntwk-bar .recharts-wrapper {
+    position: relative;
+    left: 60%;
+    transform: translateX(-50%);
+}
+
+
+.Server-nterk-infocc {
+    position: absolute;
+    margin-top: -10rem;
+    margin-left: -8rem;
+    text-align: center;
+}
+
+.Server-nterk-infocc label {
+    display: flex;
+    color: cadetblue;
+    font-size: medium;
+}
+
+.Server-nterk-infocc1 label {
+    display: flex;
+    color: cadetblue;
+    font-size: medium;
+}
+
+.Server-nterk-infocc1 {
+    position: absolute;
+    margin-top: -10rem;
+    margin-left: 2rem;
+    text-align: center;
+}
+
+.Server-procs-infocc {
+    margin-left: -7.5rem;
+    margin-top: 6rem;
+    position: absolute;
+    text-align: center;
+}
+
+.Server-procs-infocc {
+    color: #8b008b;
+}
+
+.Server-procs-infocc label {
+    color: #5f9ea0;
+    display: flex;
+    font-size: medium;
+}
+
+.Server-procs-infocc11 {
+    margin-left: -16rem;
+    margin-top: 5rem;
+    position: absolute;
+}
+
+.Server-procs-infocc11 label {
+    color: #5f9ea0;
+    display: flex;
+    font-size: medium;
+}
+
+.Server-procs-infocc11 p {
+    color: #8b008b;
+    font-size: xx-large;
+    margin-left: 30%;
+}
+
+.Server-procs-infocc12 {
+    margin-left: 0rem;
+    margin-top: 5rem;
+    position: absolute;
+}
+
+.Server-procs-infocc12 label {
+    color: #5f9ea0;
+    display: flex;
+    font-size: medium;
+}
+
+.Server-procs-infocc12 p {
+    color: #8b008b;
+    font-size: xx-large;
+    margin-left: 30%;
+}
+
+.memoryinfocc {
+    margin-left: 7.7rem;
+    margin-top: -12rem;
+    position: absolute;
+    text-align: center;
+}
+
+.memoryinfocc label {
+    color: #5f9ea0;
+    font-size: x-large;
+}
+
+
+.Server-memo-infocc {
+    margin-left: -7.5rem;
+    margin-top: 6rem;
+    position: absolute;
+    text-align: center;
+}
+
+.Server-memo-infocc {
+    color: #8b008b;
+}
+
+.Server-memo-infocc label {
+    color: #5f9ea0;
+    display: flex;
+    font-size: medium;
+}
+
+.Server-memo-infocc11 {
+    margin-left: -16rem;
+    margin-top: 5rem;
+    position: absolute;
+}
+
+.Server-memo-infocc11 label {
+    color: #5f9ea0;
+    display: flex;
+    font-size: medium;
+}
+
+.Server-memo-infocc11 p {
+    color: #8b008b;
+    font-size: larger;
+    margin-left: -18%;
+}
+
+.Server-memo-infocc12 {
+    margin-left: 0rem;
+    margin-top: 5rem;
+    position: absolute;
+}
+
+.Server-memo-infocc12 label {
+    color: #5f9ea0;
+    display: flex;
+    font-size: medium;
+}
+
+.Server-memo-infocc12 p {
+    color: #8b008b;
+    font-size: larger;
+    margin-left: -15%;
+}
+
+
+
+/* Backupp.css */
+.bgMaxH{
+    max-height: 18rem;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+/* Track */
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+/* Handle */
+::-webkit-scrollbar-thumb {
+  background: #0463fc;
+}
+
+/* Handle on hover */
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

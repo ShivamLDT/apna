@@ -1,3 +1,8 @@
+#The Problem :
+Large files and folders (like greater than 20 GB) appear to be backed up successfully across all destinations. However, during restoration, files fail due to missing chunks, resulting in partial or corrupted restores. Even though the backup status shows successful completion, large files and folders are not fully restored across any destination, impacting data integrity.
+
+
+#The Solution:
 # Chunk checksum and cloud storage (GDrive, S3, Azure)
 
 ## Integrity at every step

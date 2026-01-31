@@ -1,0 +1,23 @@
+[
+
+    {"fileIcon": "./ExtensionIcon/pdf.png", "fileExtensions": ".pdf", "Name":"Portable Document Format"},
+    {"fileIcon": "./ExtensionIcon/excel.png", "fileExtensions": ".xlsx", "Name":" Microsoft Excel"},
+    {"fileIcon": "./ExtensionIcon/docx.png", "fileExtensions": ".docx", "Name":" Microsoft Word document"},
+    {"fileIcon": "./ExtensionIcon/ppt.png", "fileExtensions": ".pptx", "Name":"Microsoft PowerPoint"},
+    {"fileIcon": "./ExtensionIcon/exe.png", "fileExtensions": ".exe","Name":"Executable File"},
+    {"fileIcon": "./ExtensionIcon/text.png", "fileExtensions": ".txt","Name":"Text File"},
+    {"fileIcon": "./ExtensionIcon/jpg.png", "fileExtensions": ".jpg","Name":"Image Format"},
+    {"fileIcon": "./ExtensionIcon/png.png", "fileExtensions": ".png","Name":"Image Format"},
+    {"fileIcon": "./ExtensionIcon/jpeg.png", "fileExtensions": ".jpeg","Name":"Image Format"},
+    {"fileIcon": "./ExtensionIcon/gif.png", "fileExtensions": ".gif","Name":"Image Format"},
+    {"fileIcon": "./ExtensionIcon/zip.png", "fileExtensions": ".zip","Name":"ZIP"},
+    {"fileIcon": "./ExtensionIcon/mp3.png", "fileExtensions": ".mp3","Name":"Music File"},  
+    {"fileIcon": "./ExtensionIcon/mp4.png", "fileExtensions": ".mp4","Name":"Video File"},
+    {"fileIcon": "./ExtensionIcon/rar.png", "fileExtensions": ".rar","Name":"ZIP"},
+    {"fileIcon": "./ExtensionIcon/csv.png", "fileExtensions": ".csv","Name":"CSV File"},
+    {"fileIcon": "./ExtensionIcon/sql.png", "fileExtensions": ".sql","Name":"SQL File"},
+    {"fileIcon": "./ExtensionIcon/eml.png", "fileExtensions": ".eml","Name":"Email File"},
+    {"fileIcon": "./ExtensionIcon/ai.png", "fileExtensions": ".ai","Name":"Adobe Illustrator File"},
+    {"fileIcon": "./ExtensionIcon/xml.png", "fileExtensions": ".xml","Name":"xml"}
+
+]

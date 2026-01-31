@@ -1,0 +1,665 @@
+.backup-content {
+  padding: 1px;
+  margin-top: -3%;
+}
+
+.backupinfo {
+  margin-top: 5px;
+  overflow-y: auto;
+  height: auto;
+  /*css changes*/
+  scroll-behavior: smooth;
+}
+
+.backupinfo::-webkit-scrollbar {
+  width: 8px;
+}
+
+.backupinfo::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.backupinfo::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+
+.backuptypesec {
+  justify-content: center;
+}
+
+.proceedbtn {
+  float: right;
+}
+
+.calendarsec {
+  margin-top: 5px;
+}
+
+.destinationtype {
+  height: 75px;
+  padding: 16px;
+  border-radius: 15px;
+}
+
+.destinationtype img {
+  max-width: 100%;
+}
+.text_drive{
+  font-size: 0.7rem;
+}
+
+/* Backup.css */
+/* @keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+} */
+
+.animate-spin-slow {
+  animation: spin-slow 6s linear infinite;
+}
+
+.destinationtype {
+  min-height: 88px;
+}
+
+.backuptypesec button {
+  min-width: 120px;
+  text-align: center;
+}
+
+.proceedbtn {
+  background-color: #2563eb;
+  color: white;
+}
+
+.stepper {
+  width: 100%;
+  display: flex;
+}
+
+.stepper span {
+  display: inline-block;
+  position: relative;
+  margin-top: 32px;
+}
+
+.stepper span+span {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: row;
+}
+
+.stepper span+span::before {
+  display: block;
+  position: absolute;
+  left: -10%;
+  /* ここは適宜修正が必要です💦 */
+  top: -16px;
+  content: "";
+  width: 100%;
+  height: 4px;
+}
+
+.item {
+  position: relative;
+  margin-left: auto;
+  margin-right: 0;
+  padding-top: 8px;
+  z-index: 0;
+  text-align: center;
+}
+
+.item::before {
+  width: 32px;
+  height: 32px;
+  position: absolute;
+  content: "";
+  top: -32px;
+  left: 0;
+  right: 0;
+  margin: auto;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+/* ここからは状態出しわけ */
+
+.ready::before {
+  background-color: lightgrey;
+}
+
+.ready>.item::before {
+  background-color: #2563EB;
+}
+
+.wip::before {
+  background-color: #2563EB;
+}
+
+.wip>.item::before {
+  border: solid 8px #2563EB;
+  background-color: white;
+}
+
+.done::before {
+  background-color: #2563EB;
+}
+
+.done>.item::before {
+  background-color: #2563EB;
+}
+
+.stepper,
+.stepper span {
+  padding: 3px;
+  list-style: none;
+}
+
+
+
+
+/* toggle button css */
+
+
+.checkbox_wrap {
+  position: relative;
+  display: block;
+  cursor: pointer;
+  /* width: 100px; */
+  /* margin: 0 auto 50px; */
+}
+
+.checkbox_item:last-child .checkbox_wrap {
+  margin-bottom: 0;
+}
+
+.checkbox_wrap .checkbox_inp {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  z-index: 1;
+}
+
+.checkbox_wrap .checkbox_mark {
+  display: inline-block;
+  position: relative;
+  border-radius: 25px;
+}
+
+.checkbox_wrap .checkbox_mark:before,
+.checkbox_wrap .checkbox_mark:after {
+  content: "";
+  position: absolute;
+  transition: all 0.5s ease;
+}
+
+
+
+/* basic styles */
+.checkbox_wrap .checkbox_mark {
+  background: #f0f0f0;
+  width: 55px;
+  height: 25px;
+  padding: 2px;
+}
+
+.checkbox_wrap .checkbox_mark:before {
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+}
+
+.checkbox_wrap .checkbox_inp:checked~.checkbox_mark {
+  background: #2563EB;
+}
+
+.checkbox_wrap .checkbox_inp:checked~.checkbox_mark:before {
+  left: 30px;
+}
+
+/* calendar css */
+.react-datepicker {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  /* width: 100% !important; */
+}
+
+.react-datepicker__header {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  /* border-radius: 12px 12px 0 0 !important; */
+  border-bottom: none !important;
+  /* padding: 16px 0 !important; */
+  position: relative !important;
+}
+
+.react-datepicker__current-month {
+  color: white !important;
+  font-weight: 600 !important;
+  font-size: 1rem !important;
+  margin-bottom: 8px !important;
+}
+
+.react-datepicker__navigation {
+  top: 18px !important;
+  width: 28px !important;
+  /* height: 28px !important; */
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  transition: all 0.2s ease !important;
+}
+
+.react-datepicker__navigation:hover {
+  background: rgba(255, 255, 255, 0.3) !important;
+  transform: scale(1.05) !important;
+}
+
+.react-datepicker__navigation-icon::before {
+  border-color: white !important;
+  border-width: 2px 2px 0 0 !important;
+}
+
+.react-datepicker__day-names {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  margin-bottom: 0 !important;
+  padding: 6px 0 !important;
+}
+
+.react-datepicker__day-name {
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 500 !important;
+  font-size: 0.7rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+}
+
+.react-datepicker__month {
+  margin: 0 !important;
+  padding: 12px !important;
+  background: white !important;
+}
+
+.react-datepicker__week {
+  margin-bottom: 2px !important;
+}
+
+.react-datepicker__day {
+  color: #374151 !important;
+  font-weight: 500 !important;
+  width: 2rem !important;
+  height: 2rem !important;
+  line-height: 2rem !important;
+  margin: 1px !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.react-datepicker__day:hover {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: white !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4) !important;
+}
+
+.react-datepicker__day--selected {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4) !important;
+}
+
+.react-datepicker__day--today {
+  background: #f3f4f6 !important;
+  color: #3b82f6 !important;
+  font-weight: 600 !important;
+  border: 2px solid #3b82f6 !important;
+}
+
+.react-datepicker__day--today:hover {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: white !important;
+  border: 2px solid transparent !important;
+}
+
+.react-datepicker__day--disabled {
+  color: #d1d5db !important;
+  background: transparent !important;
+}
+
+.react-datepicker__day--disabled:hover {
+  background: transparent !important;
+  color: #d1d5db !important;
+  transform: none !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+.react-datepicker__time-container {
+  background: white !important;
+  border-left: 1px solid #e5e7eb !important;
+  border-radius: 0 0 12px 0 !important;
+}
+
+.react-datepicker__time-container .react-datepicker__time {
+  background: white !important;
+  border-radius: 0 0 12px 0 !important;
+}
+
+.react-datepicker__time-container .react-datepicker__time .react-datepicker__time-box {
+  border-radius: 0 0 12px 0 !important;
+}
+
+.react-datepicker__header--time {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: white !important;
+  font-weight: 600 !important;
+  padding: 10px !important;
+  border-radius: 0 !important;
+}
+
+.react-datepicker__time-list {
+  scrollbar-width: thin !important;
+  scrollbar-color: #3b82f6 #f1f5f9 !important;
+}
+
+.react-datepicker__time-list::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.react-datepicker__time-list::-webkit-scrollbar-track {
+  background: #f1f5f9 !important;
+  border-radius: 2px !important;
+}
+
+.react-datepicker__time-list::-webkit-scrollbar-thumb {
+  background: #3b82f6 !important;
+  border-radius: 2px !important;
+}
+
+.react-datepicker__time-list-item {
+  padding: 6px 12px !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+  font-size: 0.85rem !important;
+}
+
+.react-datepicker__time-list-item:hover {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: white !important;
+}
+
+.react-datepicker__time-list-item--selected {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: white !important;
+  font-weight: 600 !important;
+}
+
+.react-datepicker-time__header {
+  color: white !important;
+}
+
+
+
+/* folder css */
+
+.source-name {
+  margin-top: 25px;
+}
+
+.folder-list {
+  padding: 0rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 0px;
+  height: 71px;
+  background-color: white;
+  margin-top: 18px;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  justify-content: left;
+}
+.delete-btn-icon{
+      margin-left: 10px;
+    cursor: pointer;
+}
+
+.folder-icon {
+  width: 20px;
+  margin-right: 8px;
+}
+
+.folder-name {
+  font-weight: 500;
+}
+.jobAgent-heading{
+  text-align: center;
+}
+
+.resechdule-section {
+  height: 294px;
+  width: 100%;
+}
+.show-enpoint-list{
+  margin-right: 2rem;
+}
+
+.svg-icon-bin {
+  height: 28px;
+  width: 56px;
+}
+
+
+/* gif css */
+
+.submit_overlayb {
+    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(5px);
+    background-color: #00000080;
+    height: 100%;
+    left: 0;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 9;
+}
+
+.submit_alert-containerb {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%); /* Center the container */
+  width: 270px;
+  text-align: center;
+  font-family: -apple-system, SF UI Text, Helvetica Neue, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  border-radius: 13px;
+  overflow: hidden;
+  z-index: 12;
+  background-color: rgba(255, 255, 255, 0.8); /* Popup background color */
+}
+
+.submit_alert-containerb .submit_innerb {
+  padding: 15px;
+}
+
+.submit_alert-containerb .submit_titleb {
+  font-weight: 500;
+  font-size: 18px;
+}
+
+.submit_alert-containerb .submit_titleb {
+  font-weight: 500;
+  font-size: 18px;
+}
+
+
+/* backup lable z index */
+
+.backup_lable{
+      z-index: 0
+}
+
+
+
+/* endPointCss */
+
+.endpoint-container {
+    display: flex;
+    gap: 10px;
+    margin-top: -3%;
+    /* margin-left: -3%; */
+}
+
+.endpointlist {
+    justify-content: flex-start;
+    /* align-items: center; */
+    flex-wrap: wrap;
+    width: 100%;
+    /* padding: 4rem; */
+    height: 270px;
+        /* box-shadow: 1px 0px 7px #2563EB; */
+}
+
+.endpointlistLocation {
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    padding: 4rem;
+    height: 250px;
+}
+
+.show-endpoint {
+    /* margin-right: 90px; */
+    cursor: pointer;
+}
+
+.show-endpoint-name {
+    /* margin-top: 1rem; */
+}
+.show-endpoint-img{
+  text-align: center;
+}
+.show-endpoint-emoji {
+  font-size: 52px; /* Increase as needed */
+}
+
+.marginset {
+    margin-bottom: 25px;
+}
+
+.endpointlist h3 {
+    /* margin: 1px; */
+}
+
+.endpointinfo {
+    align-items: center;
+    width: 50%;
+    overflow-y: scroll;
+    height: 511px;
+}
+
+
+.endpointinfosec1 {
+    display: flex;
+    align-items: center;
+    padding: 1px;
+    font-size: small;
+    margin-top: -5%;
+    gap: 5px;
+}
+
+.endpointinfosec1 i {
+    font-size: xx-large;
+}
+
+.endponintaction-btn {
+    justify-content: left;
+    margin-top: 2%;
+    margin-bottom: 1.5rem;
+    gap: 6px;
+}
+
+.endponintaction-btn button {
+    width: 45%;
+    color: #ffff;
+    background-color: #2563EB;
+    justify-content: center;
+    font-size: 10px;
+    border: 1px solid #2563EB;
+    align-items: center;
+    padding: 10px;
+    border-radius: 10px;
+}
+
+.disk-progress-bars {
+    justify-content: center;
+    font-size: small;
+}
+
+.disk-progress-bar {
+    width: 100%;
+    margin-top: .5rem;
+}
+
+.progress-containerInfo {
+    background-color: #e5e7eb;
+    border-radius: 10px;
+    height: 1rem;
+    overflow: hidden;
+}
+
+.progress-barInfo {
+    background-color: #3b82f6;
+    height: 100%;
+    transition: width 0.3s ease-in-out;
+}
+
+.systemprofile {
+    justify-content: flex-start;
+    font-size: 13px;
+    margin-top: .5rem;
+    padding: 1px;
+}
+
+.networkinfo {
+    display: flex;
+    justify-content: space-between;
+    font-size: small;
+}
+
+.endpointsv {
+    gap: 17rem;
+}
+
+.popup-locationT {
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 0 10px #0003;
+    height: 278%;
+    margin-left: 5%;
+    margin-top: -6%;
+    overflow-y: scroll;
+    padding: 20px;
+    text-align: center;
+    width: 82%;
+    z-index: 9999;
+}

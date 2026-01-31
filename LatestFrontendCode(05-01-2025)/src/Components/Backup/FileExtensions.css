@@ -1,0 +1,167 @@
+/* 
+24oct change vikram */
+.filterHome {
+    width: 98%;
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1rem;
+}
+
+.delete_icon {
+    width: 23px;
+    cursor: pointer;
+}
+
+/* 
+24oct change vikram */
+.FilterContainer {
+    display: flex;
+    flex-direction: column;
+    text-align: center;
+    align-items: center;
+    justify-content: center;
+    width: 102%;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #ffff;
+    margin-left: 1rem;
+    height: 236px;
+}
+
+.filterHome input {
+    flex: 1;
+    margin-bottom: 0;
+    border: 1px solid gray;
+    border-radius: 10px;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    padding: 12px 16px;
+    font-size: 16px;
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+.filterHome input:focus {
+    border-color: #667eea;
+    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.2);
+    transform: translateY(-2px);
+}
+
+.SearchList {
+    width: 95%;
+    border-top: none;
+    background-color: #fff;
+    overflow: auto;
+    overflow-y: auto;
+    height: 171px;
+
+}
+
+.SelectedContainer {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+}
+
+.SelectedContainer img {
+    max-width: 30%;
+}
+
+.SelectedData {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    border: 1px solid #ccc;
+    padding: 5px;
+    border-radius: 5px;
+    margin: 5px;
+    cursor: pointer;
+    background-color: lightblue;
+}
+
+.SelectedData .Filter-h5 {
+    font-size: 18px;
+    font-weight: 200;
+}
+
+.closebtn {
+    display: flex;
+}
+
+.SelectedData .SelectIcon {
+    max-width: 40px;
+    height: 40px;
+}
+
+.SearchList button {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    text-align: left;
+    background-color: #fff;
+    color: black;
+    align-items: center;
+    justify-content: space-between;
+    /* border: 1px solid; */
+    padding: 10px;
+}
+
+.SearchList p {
+    display: flex;
+    width: 15rem;
+    /*changes  by ankita */
+    margin: 0;
+}
+
+.SearchList button:hover {
+    background-color: #f8f9fa;
+}
+
+.highlighted {
+    background-color: #d3d3d3 !important;
+}
+
+.Selectfile-icon {
+    display: flex;
+    width: 35px;
+    height: 34px;
+}
+
+@media screen and (min-width:1920px) {
+    .FilterContainer {
+        display: flex;
+        flex-direction: column;
+        text-align: center;
+        align-items: center;
+        justify-content: center;
+        width: 102%;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        background-color: #ffff;
+        margin-left: 2rem;
+        height: auto;
+    }
+
+    .filterHome {
+        margin-top: 2rem;
+        margin-left: 0.2rem;
+    }
+}
+
+
+.popup-restored .FilterContainer {
+    width: 98%;
+}
+
+.popup-restored .SelectedContainer {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    padding: 0px;
+}

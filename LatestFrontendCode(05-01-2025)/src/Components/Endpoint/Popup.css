@@ -1,0 +1,55 @@
+/* Ensure the modal overlay and content are styled properly */
+.modal-overlayPop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5); /* semi-transparent black */
+  z-index: 9999; /* Make sure the overlay is above other content */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-contentPop {
+  position: relative; /* Make sure the close button can be positioned absolutely */
+  background-color: #fff;
+  padding: 5px;
+  border-radius: 5px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+  width: 92%;
+  max-height: 85%;
+  margin-top: 3rem;
+  /* overflow-y: auto; */
+  margin-left: 4%;
+}
+.popup-reset-text-align {
+  text-align: left; /* Reset inherited 'center' */
+}
+
+
+/* Close button styles */
+.modal-close-btnP {
+  position: absolute; /* Position it relative to the modal-content */
+  top: 10px;
+  right: 10px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 22px;
+  color: #333;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+
+
+.highlight-row {
+  background-color: #ffeb3b; /* or any color you prefer */
+}
+
+
+.status-indicator.yellow .status-color {
+  background-color: #ffeb3b;
+}
+

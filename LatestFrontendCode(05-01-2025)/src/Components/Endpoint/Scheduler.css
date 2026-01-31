@@ -1,0 +1,10 @@
+@media screen and (min-width:1024px) {
+  .custom-max-height {
+    max-height: 77vh;
+  }
+}
+
+
+.custom-max-height{
+  max-height: 58vh;
+}

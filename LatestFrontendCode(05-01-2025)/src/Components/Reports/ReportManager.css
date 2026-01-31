@@ -1,0 +1,55 @@
+.app {
+  display: flex;
+  background-color: #f5f7fb;
+  margin-top: -10px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  height: calc(100vh - 80px);
+  /* Use full viewport height */
+  /* width: 100vw; */
+  overflow: hidden;
+}
+
+.report-content {
+  width: 100%;
+  height: calc(100vh - 80px);
+  overflow-y: auto;
+  background-color: #fff;
+  overflow-x: hidden;
+  margin-left: 10px;
+  transition: margin-left 0.3s ease-in-out;
+  box-sizing: border-box;
+}
+
+.successful-jobs-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.job-table-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 1024px) {
+  .app {
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  .report-content {
+    margin-left: 0;
+    padding-top: 60px;
+    height: calc(100vh - 60px);
+    width: 100%;
+  }
+}
+
+/* Tablet adjustments */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .report-content {
+    margin-left: 5px;
+  }
+}

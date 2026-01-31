@@ -1,0 +1,257 @@
+/* Container for the inline DatePicker to manage its layout */
+.backup-rescheduler .react-datepicker-popper {
+  position: static !important;
+  /* Make sure it doesn't pop out */
+  transform: none !important;
+  width: 100%;
+}
+
+.backup-rescheduler .react-datepicker {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  width: 100% !important;
+  display: flex !important;
+  /* Enable flex for date/time side-by-side */
+  border-radius: 12px !important;
+}
+
+/* Date Picker Side (Left) */
+.backup-rescheduler .react-datepicker__month-container {
+  width: 100%;
+  max-width: 320px;
+  /* Constrain the calendar width */
+  padding: 4px;
+}
+
+.backup-rescheduler .react-datepicker__navigation--next--with-time:not(.react-datepicker__navigation--next--with-today-button) {
+  right: 110px;
+}
+
+.backup-rescheduler .react-datepicker__header {
+  background: white !important;
+  border-bottom: none !important;
+  padding: 0 !important;
+}
+
+.backup-rescheduler .react-datepicker__current-month {
+  color: #1f2937 !important;
+  /* Darker text */
+  font-weight: 700 !important;
+  font-size: 1rem !important;
+  margin-bottom: 0 !important;
+  text-align: center !important;
+}
+
+.backup-rescheduler .react-datepicker__triangle {
+  display: none !important;
+}
+
+.backup-rescheduler .react-datepicker__navigation {
+  top: 0px !important;
+  width: 20px !important;
+  height: 20px !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.backup-rescheduler .react-datepicker__navigation:hover {
+  background: #eff6ff !important;
+  /* Light blue hover */
+}
+
+.backup-rescheduler .react-datepicker__navigation-icon::before {
+  border-color: #3b82f6 !important;
+  /* Blue navigation arrows */
+  border-width: 1px 1px 0 0 !important;
+  top: 10px !important;
+}
+
+.backup-rescheduler .react-datepicker__day-names {
+  background: white !important;
+  margin-bottom: 8px !important;
+  padding: 0 !important;
+}
+
+.backup-rescheduler .react-datepicker__day-name {
+  color: #6b7280 !important;
+  /* Gray text for day names */
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  width: 2.2rem !important;
+  /* Smaller day cell width */
+  margin: 1px !important;
+}
+
+.backup-rescheduler .react-datepicker__month {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: white !important;
+}
+
+.backup-rescheduler .react-datepicker__week {
+  margin-bottom: 2px !important;
+  display: flex;
+  justify-content: space-between;
+}
+
+.backup-rescheduler .react-datepicker__day {
+  color: #374151 !important;
+  font-weight: 500 !important;
+  width: 2.2rem !important;
+  height: 2.2rem !important;
+  line-height: 2.2rem !important;
+  margin: 1px !important;
+  border-radius: 50% !important;
+  /* Circle style */
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.backup-rescheduler .react-datepicker__day:hover {
+  background: #eff6ff !important;
+  /* Light blue hover background */
+  color: #3b82f6 !important;
+  /* Blue text */
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Day selected style */
+.backup-rescheduler .react-datepicker__day--selected {
+  background: #3b82f6 !important;
+  color: white !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+  border-radius: 50% !important;
+}
+
+/* Current day style (Today) */
+.backup-rescheduler .react-datepicker__day--today {
+  background: #f3f4f6 !important;
+  color: #3b82f6 !important;
+  font-weight: 600 !important;
+  border: 1px solid #3b82f6 !important;
+  box-shadow: none !important;
+}
+
+.backup-rescheduler .react-datepicker__day--today:hover {
+  background: #eff6ff !important;
+  color: #3b82f6 !important;
+  border: 1px solid #3b82f6 !important;
+}
+
+.backup-rescheduler .react-datepicker__day--disabled {
+  color: #d1d5db !important;
+  background: transparent !important;
+}
+
+/* Time Picker Side (Right) */
+.backup-rescheduler .react-datepicker__time-container {
+  background: transparent !important;
+  border-left: 1px solid #e5e7eb !important;
+  /* Separator line */
+  padding: 16px;
+  width: 100%;
+  max-width: 140px;
+  /* Reduced max-width for time slot column */
+  border-radius: 0 12px 12px 0 !important;
+}
+
+.backup-rescheduler .react-datepicker__time-container .react-datepicker__time {
+  background: transparent !important;
+}
+
+.backup-rescheduler .react-datepicker-time__header {
+  color: #1f2937 !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  /* Slightly smaller header */
+  background: transparent !important;
+  text-align: left !important;
+  padding: 0 0 8px 0 !important;
+  border-bottom: 1px solid #e5e7eb !important;
+  margin-bottom: 8px !important;
+}
+
+.backup-rescheduler .react-datepicker__time-list {
+  max-height: 235px !important;
+  /* REDUCED HEIGHT: Significantly lowered from 350px to 200px */
+  scrollbar-width: thin !important;
+  scrollbar-color: #3b82f6 #f1f5f9 !important;
+  margin-right: -10px !important;
+  /* Compensate for scrollbar gap */
+}
+
+.backup-rescheduler .react-datepicker__time-list::-webkit-scrollbar {
+  width: 4px !important;
+}
+
+.backup-rescheduler .react-datepicker__time-list-item {
+  padding: 6px 8px !important;
+  /* Reduced padding */
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+  font-size: 0.8rem !important;
+  /* Slightly smaller text */
+  border: 1px solid #e5e7eb !important;
+  /* Border for the time slot box */
+  margin-bottom: 4px !important;
+  /* Reduced margin */
+  border-radius: 6px !important;
+  /* Reduced border-radius */
+  color: #374151 !important;
+  line-height: 1.2 !important;
+}
+
+.backup-rescheduler .react-datepicker__time-list-item:hover {
+  background: #eff6ff !important;
+  color: #3b82f6 !important;
+  border-color: #93c5fd !important;
+  /* Lighter blue border on hover */
+}
+
+.backup-rescheduler .react-datepicker__time-list-item--selected {
+  background: #3b82f6 !important;
+  color: white !important;
+  font-weight: 600 !important;
+  border-color: #3b82f6 !important;
+}
+
+/* Timezone/Footer (Simulated from the image) */
+.backup-rescheduler .react-datepicker__close-icon {
+  margin-top: 15px !important;
+  text-align: left !important;
+  color: #6b7280 !important;
+  font-size: 0.8rem !important;
+  display: block !important;
+}
+
+/* Additional utility classes for the new layout (optional, but good practice) */
+.backup-rescheduler .rescheduler-main-container {
+  /* Added to JSX for the overall wrapper */
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+
+.backup-rescheduler .react-datepicker__time-list-item--disabled {
+  color: #414243 !important;
+  background: #f9fafb !important;
+  cursor: not-allowed !important;
+  opacity: 0.5 !important;
+  pointer-events: none !important;
+}
+
+.backup-rescheduler .react-datepicker__time-list-item--disabled:hover {
+  background: #f9fafb !important;
+  color: #414243 !important;
+  border-color: transparent !important;
+  cursor: not-allowed !important;
+}

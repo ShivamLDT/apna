@@ -1,0 +1,257 @@
+.popup-overlayT {
+    align-items: center;
+    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(5px);
+    background-color: #00000080;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    left: 5%;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 999999999;
+}
+
+.modal {
+    background: white;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 873px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    overflow-y: auto;
+    height: 76%;
+}
+.custom-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  gap: 10px;
+}
+.check-img-container{
+    display: flex;
+}
+.checkbox-div{
+    margin-right: 10px;
+}
+.custom-checkbox {
+  display: none;
+}
+
+.checkbox-icon {
+  height: 20px;
+  width: 20px;
+  border: 2px solid #536dfe;
+  border-radius: 4px;
+  display: inline-block;
+  position: relative;
+  background-color: white;
+}
+
+.custom-checkbox:checked + .checkbox-icon::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  width: 6px;
+  height: 12px;
+  border: solid #536dfe;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.icon-container-img {
+  width: 24px;
+  height: 24px;
+}
+
+                    
+.icon-container-img{
+    width: 90px;
+    height: 70px;
+}
+.main-icon-container {
+  cursor: pointer;
+  margin-right: 2rem;
+  padding-top: 1rem;
+  width: 6rem;
+  word-break: break-word; /* allows long words to wrap */
+  white-space: normal;
+}
+
+.name-container-name {
+  margin-left: 0px;
+  font-size: 12px;
+  text-align: center;
+  display: block;
+  word-wrap: break-word;
+  white-space: normal;
+}
+.name-container-name{
+           margin-left: 14px
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e5e7eb;
+}
+.save-btn-1{
+   background-color: #fff;
+    border: 1px solid #000000d3;
+    border-radius: 5px;
+    color: #000000d3;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: 700;
+    position: absolute;
+    right: 45%;
+    top: 90%;
+    transition: background-color .3s, color .3s;
+    height: 45px;
+    width: 82px;
+}
+
+.modal-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.refresh-icon {
+    width: 20px;
+    height: 20px;
+    color: #6b7280;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    color: #6b7280;
+    transition: background-color 0.2s;
+}
+.img-lable-container{
+    display: flex;
+}
+
+.close-button:hover {
+    background-color: #f3f4f6;
+}
+
+.close-icon {
+    width: 20px;
+    height: 20px;
+}
+
+.modal-content {
+    padding: 24px;
+}
+
+.search-container {
+    position: relative;
+    margin-bottom: 10px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 16px 12px 44px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+    background-color: #f9fafb;
+    transition: border-color 0.2s, background-color 0.2s;
+    margin-left: 39px;
+}
+
+.file-tree-container{
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    background-color: white;
+}
+
+.search-input::placeholder {
+    color: #9ca3af;
+}
+
+.search-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    color: #6b7280;
+}
+
+.file-tree {
+    /* margin-top: 1rem; */
+    display: flex;
+    
+}
+svg{
+    cursor: pointer;
+}
+
+.tree-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.tree-item:hover {
+    background-color: #f3f4f6;
+}
+
+.tree-toggle {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    color: #6b7280;
+    transition: transform 0.2s;
+}
+
+.tree-toggle.expanded {
+    transform: rotate(90deg);
+}
+
+.tree-icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 12px;
+    color: #3b82f6;
+}
+
+.folder-icon {
+    color: #f59e0b;
+}
+
+.tree-label {
+    font-size: 14px;
+    color: #374151;
+    font-weight: 500;
+}
+
+.tree-children {
+    margin-left: 36px;
+    margin-top: 4px;
+}
+
+.tree-children .tree-item {
+    padding-left: 8px;
+}

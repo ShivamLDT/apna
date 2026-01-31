@@ -3,6 +3,7 @@ import io
 import pathlib
 import pickle
 import socket
+import ssl
 import time
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -297,8 +298,8 @@ class GDClient:
             try:
                 if isinstance(file_path, dict):
                     file_stream=io.BytesIO(file_path["file"][1])
-                    file_path=file_path["file"][0]
-                    file_metadata = {"name": file_path + ".abgd","parents": [folder_id]}
+                    file_name = file_path["file"][0]
+                    file_metadata = {"name": file_name + ".abgd","parents": [folder_id]}
                     media = MediaIoBaseUpload(file_stream, mimetype=mime_type, resumable=True)
                     file = self.service.files().create(
                         body=file_metadata,
@@ -334,8 +335,13 @@ class GDClient:
                     break
             except (
                 socket.timeout,
-                requests.exceptions.Timeout,requests.exceptions.ConnectionError,TransportError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+                TransportError,
                 ResumableUploadError,
+                ssl.SSLEOFError,
+                ConnectionResetError,
+                BrokenPipeError,
             ) as net_err:
                 backoff = RETRY_BACKOFF_BASE ** attempt
                 time.sleep(backoff)

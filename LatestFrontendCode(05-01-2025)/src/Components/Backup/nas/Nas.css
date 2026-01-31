@@ -1,0 +1,339 @@
+.Nas_blur-background {
+    align-items: center;
+    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(5px);
+    background-color: #00000080;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    left: 0;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 999999999;
+    margin-top: 0px;
+}
+
+.Nas_popup-containerglan {
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 1px 3px 5px 2px #e3d7d7;
+    left: 50%;
+    padding: 20px;
+    position: fixed;
+    top: 49%;
+    transform: translate(-50%, -50%);
+    width: 500px;
+    z-index: 1000;
+}
+
+.Nas_popup-headerlan {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: -3%;
+}
+
+
+.Nas_input {
+    border: 1px solid hsla(0, 2%, 53%, .543);
+    margin-bottom: 10px;
+    margin-top: 5px;
+    padding: 8px;
+    width: 100%;
+
+}
+
+
+.Nas_popup-containerglan {
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 1px 3px 5px 2px #e3d7d7;
+    left: 50%;
+    padding: 20px;
+    position: fixed;
+    top: 49%;
+    transform: translate(-50%, -50%);
+    width: 500px;
+    z-index: 1000;
+}
+
+
+.Nas_popup-headerlan img {
+    max-width: 8%;
+}
+
+.Nas_popup-titlelan {
+    font-size: 18px;
+}
+
+.Nas_close-button {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 20px;
+    color: #333;
+    float: right;
+}
+
+.Nas_close-button:hover {
+    background-color: red;
+}
+
+.Nas_popup-contentnas {
+    margin-top: 1%;
+}
+
+.Nas_form-group {
+    margin-bottom: 10px;
+}
+
+.Nas_test-connection-button {
+    padding: 10px 20px;
+    border: 1px solid #000000d3;
+    border-radius: 5px;
+    background-color: #007bff;
+    color: #ffffffd3;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s, color 0.3s;
+    margin-left: 5%;
+}
+
+.Nas_test-connection-button.active,
+.Nas_test-connection-button:hover {
+    background-color: #000000d3;
+    color: white;
+}
+
+.Nas_lanform-btns {
+    display: flex;
+    justify-content: space-around;
+}
+
+.Nas_connection-result {
+    margin-top: 10px;
+}
+
+.Nas_form-group p {
+    cursor: pointer;
+    color: #007bff;
+}
+
+.Nas_alert-overlay {
+    background-color: rgba(0, 0, 0, 0.2);
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+}
+
+.Nas_alert-status {
+    background-color: #fff;
+    width: auto;
+    padding: 10px;
+    border-radius: 10px;
+}
+
+.Nas_alert-status p {
+    text-align: center;
+    color: #007bff;
+}
+
+.Nas_alert-status button {
+    display: flex;
+    margin-left: 4rem;
+    border: 1px solid #ccc;
+    border-radius: inherit;
+}
+
+.Nas_popup-overlay {
+    align-items: center;
+    -webkit-backdrop-filter: blur(5px);
+    backdrop-filter: blur(5px);
+    background-color: #00000080;
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    left: 0;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    z-index: 1;
+}
+
+.Nas_popup-action-button button {
+    float: right;
+    font-size: x-large;
+    margin-top: -2.5rem;
+}
+
+.Nas_file-browserlan {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 20px;
+    width: auto;
+}
+
+.Nas_popup-Lanbrowse h2 {
+    color: #000;
+    font-weight: bolder;
+    font-size: 1.3rem;
+}
+
+.Nas_alert-status button:hover {
+    color: #ffff;
+    background-color: #007bff;
+}
+
+.Nas_file-browserlan {
+    display: flex;
+    flex-wrap: wrap;
+    width: auto;
+    padding: 20px;
+    gap: 1rem;
+}
+
+.Nas_popup-Lanbrowse {
+    width: 138%;
+    height: 85%;
+    position: absolute;
+    background-color: #fff;
+    padding: 20px;
+    border-radius: 5px;
+    margin-top: 4rem;
+    margin-left: 6rem;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    overflow-y: scroll;
+}
+
+.Nas_popup-Lanbrowse h2 {
+    color: #000;
+    font-weight: bolder;
+}
+
+.Nas_lanpopup-close-btn {
+    position: absolute;
+    margin-left: 23rem;
+    margin-top: -15rem;
+    color: #000;
+    font-size: 30px;
+    z-index: 1;
+}
+
+.Nas_lanfolder-content {
+    display: grid;
+    justify-items: center;
+    cursor: pointer;
+    text-align: center;
+    padding: 5px;
+    width: 149px;
+}
+
+.Nas_lanfolder-content img {
+    max-width: 35%;
+}
+
+.Nas_selected-folder {
+    border-radius: 10px;
+    background-color: lightblue;
+    box-shadow: 1px 3px 5px #808080;
+}
+
+.Nas_lancomputer-content {
+    display: grid;
+    justify-items: center;
+    cursor: pointer;
+    text-align: center;
+    padding: 5px;
+    width: 163px;
+}
+
+.Nas_lancomputer-content:hover {
+    cursor: pointer;
+    background-color: #fcf7b6;
+}
+
+.Nas_lancomputer-content img {
+    max-width: 55%;
+}
+
+.Nas_selected-computer {
+    border-radius: 10px;
+    background-color: #eaf248;
+    height: fit-content;
+    box-shadow: 1px 3px 5px #808080;
+}
+
+.Nas_popup-actions button {
+    float: right;
+    margin-top: -2.5rem;
+    font-size: x-large;
+}
+
+.Nas_lanservername-icon {
+    position: absolute;
+    margin-left: 86%;
+    margin-top: 7%;
+    cursor: pointer;
+    font-size: 20px;
+}
+
+.Nas_unc-error-container {
+    margin-top: -1rem;
+}
+
+.Nas_unc-error {
+    color: red;
+}
+
+.Nas_node-label::after {
+    content: '*';
+    color: red;
+    padding: 4px;
+}
+
+.Nas_eye-icond {
+    position: absolute;
+    margin-top: 0.9rem;
+    margin-left: -2rem;
+    cursor: pointer;
+}
+
+.Nas_searching-text {
+    display: inline-block;
+}
+
+.Nas_animated-dots {
+    display: inline-block;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 0.2;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+.Nas_form-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.Nas_form-group-half {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.Nas_form-group-half .Nas_input {
+    width: 100%;
+}
