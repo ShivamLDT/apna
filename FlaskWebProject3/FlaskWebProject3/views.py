@@ -8439,9 +8439,11 @@ def get_restore_data():
     selectedAction = request.json.get("action", "fetch")
     selectedStorageType = request.json.get("storageType", "LAN")
     selectedStorageTypeJSON = request.json.get("deststorageType", {"typ": "LAN"})
-    selectedAgent = request.json.get("agentName", "DESKTOP-SUCRQP8")
+    requested_agent = request.json.get("agentName", "DESKTOP-SUCRQP8")
+    requested_target_agent = request.json.get("targetAgentName", requested_agent)
+    selectedAgent = requested_agent
     selectedAgentIP6 = request.json.get("agentIP6", "")
-    selectedTargetAgent = request.json.get("targetAgentName", selectedAgent)
+    selectedTargetAgent = requested_target_agent
     startDate = request.json.get("startDate", "15/11/2023, 12:00:00 AM")
     endDate = request.json.get("endDate", "15/11/2034, 11:59:00 PM")
 
@@ -8468,10 +8470,15 @@ def get_restore_data():
         },
     )
 
-    selectedAgent = search_client_nodes(selectedAgent)["agent"]
-    selectedTargetAgent = search_client_nodes(selectedTargetAgent)["agent"]
+    agent_lookup = search_client_nodes(selectedAgent)
+    if agent_lookup.get("agent"):
+        selectedAgent = agent_lookup["agent"]
+    target_lookup = search_client_nodes(selectedTargetAgent)
+    if target_lookup.get("agent"):
+        selectedTargetAgent = target_lookup["agent"]
+
     if selectedTargetAgent == "":
-        selectedTargetAgent =selectedAgent
+        selectedTargetAgent = selectedAgent
     obj = search_client_nodes(selectedAgent)
     objIP = obj.get("ipAddress")
     if obj.get("ipAddress",None)!="":
@@ -8487,14 +8494,14 @@ def get_restore_data():
             m.close()
             if endp:
                 for e in json.loads(endp):
-                    if e["agent"] == request.json.get("agentName","AB9F073A-CC33-47DC-B4A2-84A12AA1F149"):
+                    if e["agent"] == requested_agent:
                         if e["idx"] in  app.config["agent_activation_keys"]:
                             x= search_clientnodes_x_nodes(e["idx"])
                             if x:
                                 obj = x["key"]
                             else:
                                 obj=e["idx"]
-                            selectedAgent = request.json.get("agentName","")
+                            selectedAgent = requested_agent
                         break;
 
         except:
@@ -9424,6 +9431,11 @@ def get_restore_data():
         if selectedAction == "fetchAll":
             selectedStorageType = "local','local storage','LAN','GDRIVE','Google Drive','UNC','AWSS3','AZURE','ONEDRIVE" #','NAS"
 
+            agent_candidates = [value for value in {requested_agent, selectedAgent} if value]
+        agent_filter_clause = ""
+        if agent_candidates:
+            agent_filter_clause = " and (from_computer in ('" + "', '".join(agent_candidates) + "'))"
+
         # selectedAgent =  "DESKTOP-SUCRQP8"
         # startDate =  "31/12/2023, 11:59:59 pm"
         # endDate =    "31/12/2030, 11:59:59 pm"
@@ -9492,9 +9504,7 @@ def get_restore_data():
                     + " and (data_repo in('"
                     + selectedStorageType
                     + "'))"
-                    + " and (from_computer = '"
-                    + selectedAgent
-                    + "')"
+                    + agent_filter_clause
                     + " order by date_time desc"
                 ],
             )
@@ -10420,7 +10430,23 @@ def browse():
         folders.append(response_data)
         return jsonify(paths=folders)
 
-
+def _ensure_clientnodes_loaded():
+    if not clientnodes_x:
+        clientnodes_x.update(load_clientnodes_x())
+        update_clientnodes_list(clientnodes_x, clientnodes, clientnodes2x)
+ 
+ 
+def _normalize_ip_url(value):
+    value = str(value or "")
+    if not value:
+        return ""
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    # if raw IP (no scheme/port), add defaults
+    if value.count(".") == 3:
+        return f"http://{value}:7777"
+    return value
+    
 @app.route("/api/open-file", methods=["POST"])
 def open_file():
     file_path = request.json.get("path")
@@ -10467,27 +10493,52 @@ def get_top10_jobs():
     except:
         #m.close()
         return (jsonify({"result":endpoints}),500)
-  
+ 
+
 @app.route('/restore_nodes', methods=['GET'])
 def restore_nodes():
     from .jobdata import JobsRecordManager
-    m=JobsRecordManager("records.db", "records.json",app=app)
-    endp =[] 
-    endpoints =[] 
+    _ensure_clientnodes_loaded()
+ 
+    m = JobsRecordManager("records.db", "records.json", app=app)
+    endpoints = []
     try:
         endp = m.fetch_nodes_as_json()
         m.close()
+ 
         for e in json.loads(endp):
-            if e["idx"] in  app.config["agent_activation_keys"]:
-                x= search_clientnodes_x_nodes(e["idx"])
+            if e["idx"] in app.config["agent_activation_keys"]:
+                x = (
+                    search_clientnodes_x_nodes(e["idx"])
+                    or search_clientnodes_x_nodes(e.get("agent", ""))
+                )
+ 
                 if x:
-                    flag = is_less_than_2_minutes(str(x["ipAddress"]))
-                    endpoints.append({"idx":x["key"],"agent":x["agent"],"ipAddress":x["ipAddress"],"lastConnected":str(flag)})
+                    ip_addr = _normalize_ip_url(x.get("ipAddress"))
+                    is_online = is_less_than_2_minutes(ip_addr) if ip_addr else False
+ 
+                    endpoints.append({
+                        "idx": x["key"],
+                        "agent": x["agent"],
+                        "ipAddress": ip_addr,
+                        "ip": x.get("ip", ""),
+                        "lastConnected": str(is_online),  # True=Online (same as /clientnodes)
+                        "lastConnectedTime": x.get("lastConnectedTime", "")
+                    })
                 else:
-                    endpoints.append({"idx":e["idx"],"agent":e["agent"],"ipAddress":e["idx"],"lastConnected":str(True)})
-        return (jsonify({"result":endpoints}),200)
-    except:
-        return (jsonify({"result":endpoints}),500)
+                    # fallback if not present in clientnodes_x
+                    endpoints.append({
+                        "idx": e.get("idx"),
+                        "agent": e.get("agent"),
+                        "ipAddress": _normalize_ip_url(e.get("idx")),
+                        "lastConnected": "False",
+                        "lastConnectedTime": ""
+                    })
+ 
+        return jsonify({"result": endpoints}), 200
+    except Exception:
+        return jsonify({"result": endpoints}), 500
+
 
 #@app.route("/bkp", methods=["get"])
 #def get_data_bkp():
