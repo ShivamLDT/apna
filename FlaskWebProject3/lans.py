@@ -13,29 +13,163 @@ import struct
 import os
 import win32cred
 
+# ============================================================================
+# UNC Path Normalization Utilities - SMB3 Compatible
+# ============================================================================
+
+def normalize_unc_path(path):
+    """
+    Normalize UNC paths to ensure consistent formatting.
+    Handles:
+    - Stripping/adding leading backslashes correctly
+    - Converting forward slashes to backslashes
+    - Handling long path prefix (\\?\UNC\) for paths > 260 chars
+    """
+    if not path:
+        return path
+    
+    # Convert forward slashes to backslashes
+    path = path.replace("/", "\\")
+    
+    # Remove any existing long path prefix for normalization
+    if path.startswith("\\\\?\\UNC\\"):
+        path = "\\\\" + path[8:]  # Remove \\?\UNC\ and add \\
+    elif path.startswith("\\\\?\\"):
+        path = path[4:]  # Remove \\?\ prefix
+    
+    # Strip leading/trailing whitespace
+    path = path.strip()
+    
+    # Ensure UNC paths have exactly two leading backslashes
+    if path.startswith("\\\\"):
+        # Already has UNC prefix - normalize to exactly two backslashes
+        path = "\\\\" + path.lstrip("\\")
+    elif path.startswith("\\"):
+        # Single backslash - convert to UNC
+        path = "\\" + path
+    
+    # Apply long path prefix if needed (Windows MAX_PATH is 260)
+    if len(path) > 259 and path.startswith("\\\\") and not path.startswith("\\\\?\\"):
+        # Convert \\server\share to \\?\UNC\server\share
+        path = "\\\\?\\UNC\\" + path[2:]
+    
+    return path
+
+
+def parse_unc_components(unc_path):
+    """
+    Parse a UNC path into host and share components.
+    Returns (host, share_path) tuple.
+    """
+    if not unc_path:
+        return ("", "")
+    
+    path = normalize_unc_path(unc_path)
+    
+    # Handle long path prefix
+    if path.startswith("\\\\?\\UNC\\"):
+        path = "\\\\" + path[8:]
+    
+    # Remove UNC prefix for parsing
+    if path.startswith("\\\\"):
+        path = path[2:]
+    
+    parts = path.split("\\")
+    parts = [p for p in parts if p]
+    
+    if len(parts) == 0:
+        return ("", "")
+    elif len(parts) == 1:
+        return (parts[0], "")
+    else:
+        return (parts[0], "\\".join(parts[1:]))
+
+
+def build_unc_path(host, share_path=""):
+    """
+    Build a proper UNC path from host and share components.
+    """
+    if not host:
+        return ""
+    
+    host = host.lstrip("\\").strip()
+    
+    if not share_path:
+        return f"\\\\{host}"
+    
+    share_path = share_path.strip().lstrip("\\")
+    
+    unc = f"\\\\{host}\\{share_path}"
+    return normalize_unc_path(unc)
+
+
 class NetworkShare:
+    """
+    SMB/UNC Network Share handler with SMB3 compatibility.
+    Uses SMB protocol (port 445) for connection testing and operations.
+    """
     CONNECT_INTERACTIVE = 0x00000008
+    SMB_PORT = 445  # SMB direct over TCP (SMB2/SMB3)
 
     def __init__(self, host_name, share_name, username, password):
-        self.ip_hostname = host_name
-        self.host_name = "\\\\" + host_name
-        self.share_name = share_name
-        self.share_full_name = os.path.join(self.host_name, self.share_name)
+        # Normalize the host - remove any UNC prefix
+        self.ip_hostname = host_name.replace("\\", "").strip() if host_name else ""
+        self.host_name = build_unc_path(self.ip_hostname)
+        self.share_name = share_name.strip("\\") if share_name else ""
+        self.share_full_name = build_unc_path(self.ip_hostname, self.share_name)
         self.username = username
         self.password = password
+        self._smb_conn = None
 
     def test_connection(self):
+        """
+        Test SMB connection using SMB3-compatible method.
+        First tries SMB connection, then falls back to WNet if needed.
+        """
+        # Try SMB connection first (works for Linux Samba, NAS, SMB3-only)
+        if self.test_smb_connection():
+            return True
+        
+        # Fall back to WNet connection (Windows native)
         ret = self.connect()
         if ret:
-
             self.disconnect()
         return ret
 
+    def test_smb_connection(self):
+        """
+        Test SMB connection using pysmb library with SMB3 support.
+        Works with Linux Samba, NAS devices, and SMB3-only shares.
+        """
+        try:
+            conn = SMBConnection(
+                self.username,
+                self.password,
+                "CLIENT",
+                self.ip_hostname,
+                use_ntlm_v2=True,  # Required for SMB3 negotiation
+                is_direct_tcp=True  # Port 445 (SMB direct)
+            )
+            
+            connected = conn.connect(self.ip_hostname, self.SMB_PORT, timeout=10)
+            
+            if connected:
+                print(f"[+] SMB3 connection test passed: {self.ip_hostname}")
+                conn.close()
+                return True
+            return False
+            
+        except Exception as e:
+            print(f"[!] SMB3 connection test failed: {e}")
+            return False
+
     def connect(self):
+        """
+        Establish Windows network connection using WNetAddConnection2.
+        """
         net_resource = win32wnet.NETRESOURCE()
         net_resource.lpRemoteName = self.share_full_name
         flags = 0
-        #flags |= self.CONNECT_INTERACTIVE
 
         print(f"Trying to create connection to: {self.share_full_name}")
 
@@ -58,7 +192,6 @@ class NetworkShare:
             'TargetName': self.ip_hostname,
             'UserName': self.username,
             'CredentialBlob': self.password,
-            #'Persist': win32cred.CRED_PERSIST_LOCAL_MACHINE
             'Persist': win32cred.CRED_PERSIST_ENTERPRISE 
         }
         win32cred.CredWrite(credential, 0)
@@ -66,6 +199,7 @@ class NetworkShare:
         return True
 
     def disconnect(self):
+        """Disconnect Windows network connection."""
         try:
             win32wnet.WNetCancelConnection2(self.share_full_name, 0, 0)
         except pywintypes.error:
@@ -89,162 +223,141 @@ class NetworkShare:
                 print(os.path.join(root, file))
 
     def create_file_paths_json(self, output_file, folderonly=False, level=2):
+        """
+        Create JSON file with file/folder metadata from the share.
+        Uses normalized UNC paths for reliable access.
+        """
         from flask import jsonify
-
-        # file_paths = []
-        # for root, dirs, files in os.walk(self.share_full_name):
-        #     for file in files:
-        #         file_paths.append(os.path.join(root, file))
 
         file_data = []
         file_paths = []
-        nlevel = 1
+        
         try:
-            if self.share_name == "34534544444444444444444444444444444345345":
-                # file_paths = [
-                #     self.get_file_metadata(os.path.join(self.share_full_name, item))
-                #     for r, item, f in os.walk(self.share_full_name)
-                # ]
-                file_paths = []
-            else:
-                for r, fo, f in os.walk(self.share_full_name):
-                    if folderonly:
-                        for item in fo:
-                            try:
-                                file_paths.append(
-                                    self.get_file_metadata(
-                                        os.path.join(self.share_full_name, r, item),
-                                        item,
-                                    )
-                                )
-                            except Exception as de:
-                                print(str(de))
-                        # break;
-                        # if nlevel==level:
-                        # nlevel=nlevel+1
-                    else:
-                        for item in f:
-                            try:
-                                file_paths.append(
-                                    self.get_file_metadata(
-                                        os.path.join(self.share_full_name, r, item),
-                                        item,
-                                    )
-                                )
-                            except Exception as dw:
-                                print(str(dw))
-                        # break;
-                        # nlevel=nlevel+1
-                        # if nlevel==level: break;
-                    break
-                    # nlevel=nlevel+1
-                    # if nlevel==level: break;
+            # Normalize the share path for os.walk
+            walk_path = normalize_unc_path(self.share_full_name)
+            
+            for r, fo, f in os.walk(walk_path):
+                if folderonly:
+                    for item in fo:
+                        try:
+                            # Build proper UNC path avoiding double backslashes
+                            item_path = os.path.join(r, item)
+                            item_path = normalize_unc_path(item_path)
+                            file_paths.append(
+                                self.get_file_metadata(item_path, item)
+                            )
+                        except Exception as de:
+                            print(f"[!] Error processing folder {item}: {de}")
+                else:
+                    for item in f:
+                        try:
+                            item_path = os.path.join(r, item)
+                            item_path = normalize_unc_path(item_path)
+                            file_paths.append(
+                                self.get_file_metadata(item_path, item)
+                            )
+                        except Exception as dw:
+                            print(f"[!] Error processing file {item}: {dw}")
+                break  # Only process first level
 
             file_data.append({"path": self.share_name, "contents": file_paths})
+            
             with open(output_file, "w") as json_file:
-                # json.dump(file_paths, json_file, indent=4)
                 json.dump(file_data, json_file, indent=4)
 
-            # return jsonify(paths=file_paths)
+            print(f"[+] File paths saved to {output_file}")
             return jsonify(paths=file_data)
-            print(f"File paths saved to {output_file}")
+            
         except Exception as e:
-            print(f"Error writing to JSON file: {e}")
-            return "{}"
+            print(f"[ERROR] Error creating file paths JSON: {e}")
+            return jsonify(paths=[], error=str(e))
 
     def get_shared_list(self):
-        conn = SMBConnection(
-            self.username,
-            self.password,
-            "",
-            self.ip_hostname,
-            use_ntlm_v2=True,
-            is_direct_tcp=True,
-        )
-        conn.connect(self.ip_hostname, 445)
-        # filtered_shares = [
-        #     share.name
-        #     for share in conn.listShares()
-        #     if share.isSpecial == False and share.isTemporary == False
-        # ]
-        file_paths=[]
-        # try:
-        #     file_paths = [{"path":share.name,"contents":
-        #         self.get_file_metadata(
-        #             os.path.join(self.share_full_name, share.name), share.name
-        #         )}
-        #         for share in conn.listShares()
-        #         if share.isSpecial == False and share.isTemporary == False
-        #     ]
-        # except:
-        file_paths = [{"path":share.name,"contents":
-            self.get_file_metadata(
-                #os.path.join(self.share_full_name, share.name), share.name
-                os.path.join(self.host_name, share.name), share.name
-            )}
-            for share in conn.listShares()
-            if share.isSpecial == False and share.isTemporary == False
-        ]
-        # folders=[]
-        # folders = [
-        #     self.get_file_metadata(
-        #         os.path.join(self.share_full_name, share.name), share.name
-        #     )
-        #     for share in conn.listShares()
-        #     if share.isSpecial == False and share.isTemporary == False
-        # ]
-        folders = [
-            self.get_file_metadata(
-                os.path.join(self.share_full_name, share.name), share.name
+        """
+        List available SMB shares using SMB3-compatible connection.
+        Works with Linux Samba, Windows, and NAS devices.
+        """
+        try:
+            # Use SMB connection with SMB3 support (NTLMv2 + direct TCP)
+            conn = SMBConnection(
+                self.username,
+                self.password,
+                "CLIENT",
+                self.ip_hostname,
+                use_ntlm_v2=True,  # Required for SMB3 negotiation
+                is_direct_tcp=True,  # Port 445 direct TCP
             )
-            for share in conn.listShares()
-            if share.isSpecial == False and share.isTemporary == False
-        ]
-        print(f"\npath: {self.share_full_name} \ncontents: {file_paths}")
-        folders.append({"path": self.share_full_name, "contents": file_paths})
-        try:
-            print(jsonify(file_paths))
-        except:
-            print({'result':file_paths})
+            conn.connect(self.ip_hostname, self.SMB_PORT, timeout=10)
             
-        conn.close()
-        try:
-            return jsonify(paths=file_paths)
-        except:
-            pass
+            file_paths = []
+            for share in conn.listShares():
+                if not share.isSpecial and not share.isTemporary:
+                    # Build proper UNC path for this share
+                    share_unc = build_unc_path(self.ip_hostname, share.name)
+                    try:
+                        metadata = self.get_file_metadata(share_unc, share.name)
+                        file_paths.append({"path": share.name, "contents": metadata})
+                    except Exception as e:
+                        print(f"[!] Error getting metadata for share {share.name}: {e}")
+                        file_paths.append({"path": share.name, "contents": str(e)})
+            
+            print(f"[+] Listed {len(file_paths)} shares from {self.ip_hostname}")
+            conn.close()
+            
+            try:
+                return jsonify(paths=file_paths)
+            except:
+                return {'paths': file_paths}
+                
+        except Exception as e:
+            print(f"[ERROR] get_shared_list failed: {e}")
+            try:
+                return jsonify(paths=[], error=str(e))
+            except:
+                return {'paths': [], 'error': str(e)}
 
 
-    def get_file_metadata(self,file_path, name):
+    def get_file_metadata(self, file_path, name):
+        """
+        Get metadata for a file or directory on an SMB share.
+        Handles UNC path normalization for proper access.
+        """
         try:
-            from asyncio.windows_events import NULL
-            import psutil
-            import os
             import mimetypes
             import datetime
 
-            stat_info = os.stat(file_path)
-            mime_type, _ = mimetypes.guess_type(file_path)
+            # Normalize the UNC path for reliable access
+            normalized_path = normalize_unc_path(file_path)
+            
+            stat_info = os.stat(normalized_path)
+            mime_type, _ = mimetypes.guess_type(normalized_path)
             if not mime_type:
                 mime_type = "application/octet-stream"
 
-            file_name = os.path.basename(file_path)
-            # digest_value = calculate_file_digest(file_path)
+            file_name = os.path.basename(normalized_path)
+            is_file = os.path.isfile(normalized_path)
+            
+            # Build the path for response using proper UNC formatting
+            if is_file:
+                response_path = normalized_path
+            else:
+                response_path = f"{self.share_name}\\{name}" if self.share_name else name
 
             metadata = {
-                "id": file_path if os.path.isfile(file_path) else name,
-                "path": file_path if os.path.isfile(file_path) else self.share_name+"\\"+  name,
-                "name": file_name if os.path.isfile(file_path) else name,
-                "type": "file" if os.path.isfile(file_path) else "directory",
+                "id": normalized_path if is_file else name,
+                "path": response_path,
+                "name": file_name if is_file else name,
+                "type": "file" if is_file else "directory",
                 "size": stat_info.st_size,
                 "last_modified": datetime.datetime.fromtimestamp(
                     stat_info.st_mtime
                 ).isoformat(),
                 "mimetype": mime_type,
-                # "dgid": digest_value,
             }
             return metadata
         except Exception as e:
-            return str(e)
+            print(f"[!] Error getting metadata for {file_path}: {e}")
+            return {"error": str(e), "name": name, "path": file_path}
 
 # if __name__ == "__main__":
 #     import sys

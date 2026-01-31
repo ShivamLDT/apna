@@ -8119,9 +8119,10 @@ def save_savelogdata(
         #     )
 
         # xession.commit()
+        # Include UNC in backup progress aggregation - UNC backups now properly tracked
         sql_sum = (
             "SELECT id, SUM(sum_all), SUM(sum_done) "
-            f"FROM backups WHERE data_repo not in ('UNC') and name = {float(j_sta)} "
+            f"FROM backups WHERE name = {float(j_sta)} "
             "GROUP BY id ORDER BY id DESC"
         )
 
@@ -8360,20 +8361,8 @@ def update_filebackup_counts(
         # )
         # xession.execute(stmt)
 
-        # sql = text("""
-        # UPDATE backups_M
-        # SET sum_all = sq.sumall,
-        #     sum_done = sq.sumdone
-        # FROM (
-        #     SELECT name AS log_id,
-        #             count(sum_all) AS sumall,
-        #             count(sum_done) AS sumdone
-        #     FROM backups
-        #     WHERE (sum_done/sum_all)=1 and data_repo not in ('UNC') 
-        #     GROUP BY name
-        # ) AS sq
-        # WHERE backups_M.id = sq.log_id;
-        # """)  
+        # UNC backups are now included in progress aggregation
+        # Previous exclusion removed to ensure UNC backup status updates correctly
         sql = text("""
         UPDATE backups_M
         SET sum_done = sq.sumdone
@@ -8382,7 +8371,7 @@ def update_filebackup_counts(
                     count(sum_all) AS sumall,
                     count(sum_done) AS sumdone
             FROM backups
-            WHERE (sum_done/sum_all)=1 and data_repo not in ('UNC') 
+            WHERE (sum_done/sum_all)=1
             GROUP BY name
         ) AS sq
         WHERE backups_M.id = sq.log_id;

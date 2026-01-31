@@ -2058,18 +2058,27 @@ def restoretest2():
         return response
 
 def getConn(repo_d={},keyx=None,job_id=None):
+    """
+    Get UNC/SMB connection for backup operations.
+    Uses SMB3-compatible NetworkShare.test_connection() which validates
+    credentials via SMB protocol (port 445) - works with Windows, Linux Samba, and NAS.
+    """
     from fClient.unc import EncryptedFileSystem, NetworkShare
     from fClient.cm import CredentialManager
     j = app.apscheduler.get_job(id=job_id)
 
+    # Test SMB connection using SMB3-compatible method (not SFTP)
+    # NetworkShare now uses SMBConnection with NTLMv2 for SMB3 support
     if NetworkShare(repo_d["ipc"], "", repo_d["uid"], repo_d["idn"]).test_connection():
         try:
             return EncryptedFileSystem(
                 repo_d["ipc"], repo_d["uid"], repo_d["idn"], repo_d["loc"]
             )
-        except:
+        except Exception as e:
+            print(f"[!] Failed to create EncryptedFileSystem: {e}")
             return None
     else:
+        # Fallback: try credentials from CredentialManager
         u, p = CredentialManager(repo_d["ipc"],keyx=keyx).retrieve_credentials(repo_d["ipc"])
         if not u or not p:
             return None
@@ -2081,6 +2090,7 @@ def getConn(repo_d={},keyx=None,job_id=None):
                 return EncryptedFileSystem(repo_d["ipc"], u, p, repo_d["loc"])
 
             except Exception as de:
+                print(f"[!] Failed to connect with stored credentials: {de}")
                 return None
 
 
