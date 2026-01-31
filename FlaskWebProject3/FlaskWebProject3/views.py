@@ -1726,12 +1726,16 @@ def serve_react_app(path):
         # Process the state parameter as needed
         return jsonify({"state": state})
 
-    if path != "" and path.startswith("static"):
+    if path != "" and (path.startswith("static") or path.startswith("assets")):
         return send_from_directory(app.static_folder, path)
     elif path == "":
         return send_from_directory(app.static_folder, "index.html")
     else:
-        return "asfdasf"
+        # Root-level assets (e.g. /logo192.png, /Abl.ico) or SPA client routes
+        full_path = os.path.join(app.static_folder, path)
+        if os.path.isfile(full_path) and os.path.realpath(full_path).startswith(os.path.realpath(app.static_folder)):
+            return send_from_directory(app.static_folder, path)
+        return send_from_directory(app.static_folder, "index.html")
 
 
 @app.route("/authen")
@@ -2722,18 +2726,33 @@ def is_client_online(url, timeout=2):
     Quick check if client is reachable using TCP socket.
     Returns True if online, False if offline.
     Much faster than HTTP request on offline clients.
+    Accepts URL with or without scheme (e.g. http://ip:7777 or ip:7777).
     """
     try:
         from urllib.parse import urlparse
+        url = str(url or "").strip()
+        if not url:
+            return False
         parsed = urlparse(url)
         host = parsed.hostname
         port = parsed.port or 7777
-        
+        if not host and url:
+            # No scheme: treat as host:port (e.g. 10.109.164.78:7777)
+            if ":" in url:
+                parts = url.rsplit(":", 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    host = parts[0]
+                    port = int(parts[1])
+                else:
+                    host = url
+            else:
+                host = url
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         result = sock.connect_ex((host, port))
         sock.close()
-        
+
         return result == 0  # 0 means connection successful
     except Exception:
         return False
@@ -3523,7 +3542,7 @@ def data_download():
 
     # conn = sqlite3.connect(f"{obj}.db")
     s_manager = SQLiteManager()
-    dbname = os.path.join(app.config["location"], obj) + ".db"
+    dbname = os.path.join(app.config["location"], obj)
     qrs = [
         (
             dbname,
@@ -3555,19 +3574,43 @@ def data_download():
     # file_paths = cursor.fetchall()
     # cursor.close()
     # conn.close()
-    file_or_folder =None
-    if file_paths:
-        file_or_folder =file_paths[0][8]
-    if file_or_folder =="" or file_or_folder ==None:
-        file_or_folder="folder"
-    if len(file_paths)!=0:
-        jd = json.loads(file_paths[0][10])
-    else:
-        jd = None
-    try:
-        jd = json.loads(jd)
-    except:
-        print("")
+    file_or_folder = None
+    jd = None
+    if file_paths and len(file_paths) > 0:
+        file_or_folder = file_paths[0][8]
+        if file_or_folder == "" or file_or_folder is None:
+            file_or_folder = "folder"
+        try:
+            log_val = file_paths[0][10]
+            jd = json.loads(log_val) if isinstance(log_val, str) else log_val
+            if isinstance(jd, str):
+                jd = json.loads(jd)
+        except Exception:
+            jd = None
+    # GDrive/cloud fallback: when backups is empty, query backups_M (data_repod has metadata)
+    if jd is None and id and pid and obj:
+        q_backups_m = (
+            "SELECT from_path, file_name, data_repo, data_repod FROM backups_M WHERE "
+            f"id = {float(pid)}"
+        )
+        try:
+            qrs_m = [(dbname, [q_backups_m])]
+            results_m = s_manager.execute_queries(qrs_m)
+            db_results = results_m.get(dbname, [])
+            if db_results and db_results[0][0] == "Success" and db_results[0][1]:
+                row = db_results[0][1][0]
+                from_path, file_name_m, data_repo_m, data_repod = (row[0] or ""), (row[1] or ""), (row[2] or ""), (row[3] or "{}")
+                file_or_folder = "file" if file_name_m else "folder"
+                if data_repod:
+                    jd = json.loads(data_repod) if isinstance(data_repod, str) else data_repod
+                    jd = jd or {}
+                    jd.setdefault("rep", data_repo_m)
+                    jd.setdefault("file_name", os.path.basename(file_name_m) if file_name_m else "")
+                    jd.setdefault("file_name_x", (from_path + os.sep + file_name_m) if file_name_m else from_path)
+        except Exception:
+            pass
+    if jd is None:
+        return ("No backup record found for id=%s pid=%s" % (id, pid), 404)
     # file_path = os.path.join(
     #     os.path.dirname(os.path.realpath(__file__)),
     #     "downloads",
@@ -3944,7 +3987,7 @@ def upload_file_unc():
                 extra={"event": "manifest_update", "manifest_path": _manifest_path(temp_manifest_dir, file_name, j_sta)},
             )
         done_all = 1 if jsvkrgs["totalfiles"] == jsvkrgs["currentfile"] else 0
-        dbname = os.path.join(app.config["location"], scom) + ".db"
+        dbname = os.path.join(app.config["location"], scom)
         qrs = [
             (
                 dbname,
@@ -4288,7 +4331,7 @@ def upload_file_nas():
         if mime_type == "file":
             file_name = os.path.basename(file_path)
         done_all = 1 if jsvkrgs["totalfiles"] == jsvkrgs["currentfile"] else 0
-        dbname = os.path.join(app.config["location"], scom) + ".db"
+        dbname = os.path.join(app.config["location"], scom)
         qrs = [
             (
                 dbname,
@@ -4815,13 +4858,20 @@ def upload_file():
 
     bGDBackup=False
     bOneDrive_backup = False
+    bAWS_backup = False
+    bAZURE_backup = False
 
     if (decompressed_chunk) == GD_DATA_BLOCK:
-        print("this entry should save gdrive metadata")
-        if (str(rep).upper().replace(" ", "") in ["GOOGLEDRIVE","GDRIVE"]):
-            bGDBackup=True
-        elif (str(rep).upper().replace(" ", "") in ["ONEDRIVE"]):
-            bOneDrive_backup=True
+        print("this entry should save cloud metadata")
+        rep_upper = str(rep).upper().replace(" ", "")
+        if rep_upper in ["GOOGLEDRIVE", "GDRIVE"]:
+            bGDBackup = True
+        elif rep_upper == "ONEDRIVE":
+            bOneDrive_backup = True
+        elif rep_upper == "AWSS3":
+            bAWS_backup = True
+        elif rep_upper == "AZURE":
+            bAZURE_backup = True
 
 
     # try:
@@ -4992,7 +5042,9 @@ def upload_file():
                     )
 
                 if save_all(
-                    file_name, total_chunks, tcc, abort, epc, currentfile, totalfiles,bNoBackup=bNoBackup,tfi=tfi
+                    file_name, total_chunks, tcc, abort, epc, currentfile, totalfiles,bNoBackup=bNoBackup,tfi=tfi,
+                    bGD_backup=bGDBackup, bOneDrive_backup=bOneDrive_backup,
+                    bAWS_backup=bAWS_backup, bAZURE_backup=bAZURE_backup
                 ):
                     job_id = ensure_job_id(j_sta)
                     log_event(
@@ -5024,7 +5076,8 @@ def upload_file():
                         currentfile=currentfile,
                         totalfiles=totalfiles,
                         givn=givn,
-                        tccsrc=tccsrc,bNoBackup=bNoBackup,fidi=fidi,tfi=tfi,bGD_backup=bGDBackup,bOneDrive_backup=bOneDrive_backup, stat=stat, file_id=file_id
+                        tccsrc=tccsrc,bNoBackup=bNoBackup,fidi=fidi,tfi=tfi,bGD_backup=bGDBackup,bOneDrive_backup=bOneDrive_backup,bAWS_backup=bAWS_backup,bAZURE_backup=bAZURE_backup, stat=stat, file_id=file_id,
+                        gfidi_from_headers=request.headers.get("gfidi") if bGDBackup else None,
                     )
                     log_event(
                         logger,
@@ -5310,7 +5363,7 @@ def save_temp(
 
             #temp_file.write(delimiter)
             # s_manager = SQLiteManager()
-            # dbname = os.path.join(app.config["location"], obj) + ".db"
+            # dbname = os.path.join(app.config["location"], obj)
             # qrs = [
             #     (
             #         dbname,
@@ -5393,7 +5446,7 @@ def save_all(file_name, total_chunks, tcc, abort,
     import tempfile
     if bNoBackup:
         return bNoBackup
-    if bGD_backup: # or bAWS_backup or bAZURE_backup or bOneDrive_backup :
+    if bGD_backup or bOneDrive_backup or bAWS_backup or bAZURE_backup:
         return True
     try:
         temp_dir = os.path.join(add_unc_temppath(), tcc)
@@ -5524,11 +5577,13 @@ def save_final(
     bAZURE_backup=False,
     bOneDrive_backup=False,
     stat = None,
-    backup_logs_id=0.0, file_id = None
+    backup_logs_id=0.0, file_id = None,
+    gfidi_from_headers=None,
 ):
     import gzip
     import os
     import tempfile
+    import hashlib
     # if not bNoBackup: 
     #     bNoBackup ="full"
     thiscurrentfile = currentfile
@@ -5546,6 +5601,38 @@ def save_final(
         app.config["UPLOAD_FOLDER"], tcc, f"{file_name}_{str(j_sta)}.gz"
     )
     if not abort:
+        # GDrive/OneDrive/AWS/Azure: client uploads to cloud directly; no chunk files on server.
+        # Skip temp_dir/chunk_files/manifest checks and only persist metadata to backups_M.
+        if bGD_backup or bOneDrive_backup or bAWS_backup or bAZURE_backup:
+            try:
+                h = hashlib.md5()
+                h.update(b"")
+                gidn = None
+                if gfidi_from_headers:
+                    try:
+                        raw = gfidi_from_headers.decode("utf-8") if isinstance(gfidi_from_headers, bytes) else gfidi_from_headers
+                        gidn = json.loads(raw) if isinstance(raw, str) and raw.strip().startswith("{") else raw
+                    except Exception:
+                        gidn = gfidi_from_headers
+                size_val = (stat.get("size", 0) if stat else 0) or 0
+                save_savelogdata(
+                    file_name, total_chunks, tcc, abort, epc, epn, tf, pna, rep, ahi, j_sta,
+                    mimet, pNameText, pIdText, bkupType, currentfile, totalfiles,
+                    hash_function=h, output_file_path=output_file_pathgd,
+                    mode_m="uploading", status_m="pending", mode_t="saving",
+                    givn=givn, gidn=gidn, backup_logs_id=backup_logs_id, bdone=True,
+                    tccsrc=tccsrc, fidi=fidi, size_data=size_val, file_id=file_id,
+                )
+                return True, None
+            except Exception as e:
+                log_event(
+                    logger, logging.ERROR, ensure_job_id(j_sta), "backup",
+                    file_path=file_name, file_id=file_id,
+                    error_code="GDRIVE_SAVE_METADATA_FAILED", error_message=str(e),
+                    extra={"event": "save_savelogdata_failed"},
+                )
+                return False, None
+
         temp_dir = os.path.join(add_unc_temppath(), tcc)
         if tfi:
             temp_dir = os.path.join(add_unc_temppath(), tcc,tfi)
@@ -6552,7 +6639,7 @@ def save_final(
                 # xession = Session()
                 from sqlite_managerA import SQLiteManager
                 xession = SQLiteManager()
-                dbname = f"{epc}.db"
+                dbname = os.path.join(app.config["location"], epc)
                 from sqlalchemy import func
                 thiscurrentfile = currentfile if bdone else float(currentfile) - 1
                 try:
@@ -7815,8 +7902,14 @@ def save_savelogdata(
     # Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     # xession = Session()
     from sqlite_managerA import SQLiteManager
+    from module2 import create_database
     xession = SQLiteManager()
-    dbname = f"{epc}.db"
+    dbname = os.path.join(app.config["location"], epc)
+    # Ensure DB has backups_M (and related tables) so INSERT succeeds (e.g. for GDrive backup)
+    try:
+        create_database(dbname)
+    except Exception as _:
+        pass
     sql_logs = None
     sql_main = None
     size_val = size_data #os.path.getsize(output_file_path) if os.path.exists(output_file_path) else 0
@@ -7845,6 +7938,47 @@ def save_savelogdata(
     #         # xession.add(record)
     #         xession.merge(record)
     #         xession.commit()
+            # For GDrive/AWS/Azure/OneDrive: store cloud metadata in data_repod so restore can use it without a local manifest
+            data_repod_val = ""
+            rep_upper = str(rep).upper().replace(" ", "")
+            _original_path = (tccsrc + os.sep + (file_name or "")).rstrip(os.sep) if file_name else tccsrc
+            if gidn is not None or (rep_upper in ["GDRIVE", "GOOGLEDRIVE"] and givn is not None):
+                # gidn_list must be a list of file-id objects (dict with 'id' or string id) for client restore
+                _gidn_list = [gidn] if gidn is not None else []
+                if isinstance(gidn, list):
+                    _gidn_list = gidn
+                elif isinstance(gidn, dict):
+                    # single chunk: keep as list of one dict so client can do gfid['id']
+                    _gidn_list = [gidn]
+                elif gidn is not None:
+                    _gidn_list = [gidn]
+                _data_repod_obj = {
+                    "gidn": gidn,
+                    "givn": givn,
+                    "gidn_list": _gidn_list,
+                    "path": tccsrc,
+                    "file_name": file_name or "",
+                    "original_path": _original_path,
+                    "total_chunks": int(total_chunks),
+                    "isMetaFile": isMetaFile,
+                }
+                data_repod_val = json.dumps(_data_repod_obj).replace("'", "''")
+            elif rep_upper in ["AWSS3", "AZURE", "ONEDRIVE"]:
+                # AWS/Azure/OneDrive: no local manifest; store object path/key so restore can fetch from cloud via server
+                _file_name_x = (tccsrc + os.sep + (file_name or "") + "_" + str(j_sta) + ".gz").replace("\\", "/")
+                if rep_upper == "ONEDRIVE":
+                    _file_name_x = ("ApnaBackup" + os.sep + tccsrc + os.sep + (file_name or "") + "_" + str(j_sta) + ".gz").replace("\\", "/")
+                _data_repod_obj = {
+                    "path": tccsrc,
+                    "file_name": file_name or "",
+                    "j_sta": j_sta,
+                    "file_name_x": _file_name_x,
+                    "original_path": _original_path,
+                    "total_chunks": int(total_chunks),
+                    "givn": givn,
+                    "isMetaFile": isMetaFile,
+                }
+                data_repod_val = json.dumps(_data_repod_obj).replace("'", "''")
             sql_main = (
                 "INSERT INTO backups_M ("
                 "id, date_time, from_computer, from_path, file_name, "
@@ -7856,7 +7990,7 @@ def save_savelogdata(
                 f"'{rep}', '{mimet}', {size_val}, "
                 f"'{pNameText}', '{pIdText}', '{bkupType}', "
                 f"{int(totalfiles)}, {int(currentfile)}, 1, "
-                f"'{mode_m}', '{status_m}', ''"
+                f"'{mode_m}', '{status_m}', '{data_repod_val}'"
                 ") ON CONFLICT(id) DO UPDATE SET "
                 "date_time=excluded.date_time, "
                 "from_computer=excluded.from_computer, "
@@ -7927,6 +8061,7 @@ def save_savelogdata(
             # # xession.add(record2)
             # xession.merge(record2)
             # xession.commit()]
+            log_escaped = json.dumps(new_item).replace("'", "''")
             sql_logs = (
                 "INSERT OR REPLACE INTO backups ("
                 "id, name, date_time, from_computer, from_path, data_repo, "
@@ -7935,7 +8070,7 @@ def save_savelogdata(
                 ") VALUES ("
                 f"{backup_logs_id}, {float(j_sta)}, {int(time())}, '{epn}', '{tccsrc}', '{rep}', "
                 f"'', '{file_name}', '{os.path.join(tcc, file_name)}', "
-                f"{size_val}, '{json.dumps(new_item)}', "
+                f"{size_val}, '{log_escaped}', "
                 f"'{pNameText}', '{pIdText}', '{bkupType}', "
                 f"{int(xsum_all)}, {int(xsum_done)}, '{xdone_all}', '{mode_t}', '{status_t}'"
                 ")"
@@ -8039,7 +8174,7 @@ def save_saveinit_log():
 
     from sqlite_managerA import SQLiteManager
     xession = SQLiteManager()
-    dbname = f"{epc}.db"
+    dbname = os.path.join(app.config["location"], epc)
     create_database(dbname)
 
     values_list = []
@@ -8315,7 +8450,7 @@ def get_restpre_file_data():
     backup_pid = request.json.get("backup_pid", None)
     file_name = request.json.get("file_name", None)
     obj = request.json.get("obj", None)
-    dbname = os.path.join(app.config["location"], obj) + ".db"
+    dbname = os.path.join(app.config["location"], obj)
     
     bType = request.json.get("bType", None)
     if bType:
@@ -8400,6 +8535,26 @@ def get_restpre_file_data():
                         print(f"    Records: {records}")
     except:
         print("")
+    # GDrive/cloud fallback: when backups is empty, query backups_M for file metadata
+    if not file_paths and backup_pid and file_name:
+        _fn_esc = str(os.path.basename(file_name)).replace("'", "''")
+        _fn_full_esc = str(file_name).replace("'", "''")
+        q_bm = (
+            "SELECT pIdText, COALESCE(from_path || char(92) || file_name, file_name, from_path) as file_path_name, "
+            "id, id, from_computer, date_time as first_c, date_time as last_c "
+            "FROM backups_M WHERE pIdText = '" + str(backup_pid).replace("'", "''") + "' "
+            "AND data_repo IN ('GDRIVE','GOOGLEDRIVE','AWSS3','AZURE','ONEDRIVE') "
+            "AND (file_name = '" + _fn_esc + "' OR (from_path || char(92) || file_name) = '" + _fn_full_esc + "')"
+        )
+        try:
+            qrs_bm = [(dbname, [q_bm])]
+            res_bm = s_manager.execute_queries(qrs_bm)
+            db_res = res_bm.get(dbname, [])
+            if db_res and db_res[0][0] == "Success" and db_res[0][1]:
+                for row in db_res[0][1]:
+                    file_paths.append(dict(pidText=row[0], file_path_name=row[1], name=row[2], id=row[3], from_computer=row[4], first_c=row[5] or 0, last_c=row[6] or 0))
+        except Exception:
+            pass
     return (jsonify(result=file_paths), 200)
 
 ##kartik
@@ -8419,6 +8574,8 @@ def add_unc_temppath():
 @role_required('admin','employee') ##kartik
 @permission_required('restoreReadWrite')
 def get_restore_data():
+    # API contract: 200 = request processed (check result[] for per-file restore status).
+    # 500 = restore failed; body has result=[{restore:"failed", reason:"..."}]. Frontend shows result[0].reason.
     import time
     from sqlalchemy.orm import sessionmaker
     from module2 import BackupLogs, BackupMain
@@ -8436,6 +8593,8 @@ def get_restore_data():
     except:
         print("")
 
+    if request.json is None:
+        return (jsonify({"error": "invalid_or_expired_key"}), 401)
     selectedAction = request.json.get("action", "fetch")
     selectedStorageType = request.json.get("storageType", "LAN")
     selectedStorageTypeJSON = request.json.get("deststorageType", {"typ": "LAN"})
@@ -8545,76 +8704,78 @@ def get_restore_data():
     if selectedAction == "browse" or selectedAction == "restore":
 
         selectedId = request.json.get("id", "0")
-
-        # # conn = sqlite3.connect(f"{obj}.db")
-        # conn = sqlite3.connect(os.path.join(app.config["location"], obj) + ".db")
-        # cursor = conn.cursor()
-        # cursor.execute(
-        #     "SELECT replace(replace(full_file_name,'',''), '"
-        #     + os.path.join(obj, "")
-        #     + "','') FROM backups where "
-        #     + "name = "
-        #     + str(selectedId)
-        #     + " and data_repo = '"
-        #     + str(selectedStorageType)
-        #     + "'"
-        # )
-        # file_paths = [row[0] for row in cursor.fetchall()]
-        # cursor.close()
-        # conn.close()
         s_manager = SQLiteManager()
-        dbname = os.path.join(app.config["location"], obj) + ".db"
-        
-        qry = str(
-            "SELECT replace(replace(full_file_name,'',''), '"
-            + os.path.join(obj, "")
-            + "','') FROM backups where "
-            + "name = "
-            + str(selectedId)
-            + " and data_repo = '"
-            + str(selectedStorageType)
-            + "'"
+        location_dir = app.config.get("location") or os.getcwd()
+        dbname = os.path.join(location_dir, obj)
+
+        # Query backups_M (GDrive/cloud metadata) first; fall back to "backups" for legacy LAN
+        qry_m = (
+            "SELECT from_path, file_name FROM backups_M WHERE "
+            + "id = " + str(selectedId)
+            + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
         )
-        if not all_types:
-            if all_selected_types:
-                qry = str(
-                    "SELECT replace(replace(full_file_name,'',''), '"
-                    + os.path.join(obj, "")
-                    + "','') as xs FROM backups where "
-                    + "name = "
-                    + str(selectedId)
-                    + " and data_repo = '"
-                    + str(selectedStorageType)
-                    + "' "
-                    + " and ("
-                    + " OR ".join(
-                        [
-                            f"full_file_name LIKE '%{name}'"
-                            for name in all_selected_types
-                        ]
-                    )
-                    + ")"
-                )
-        qrs = [
-            (
-                dbname,
-                ["delete from backups where replace(replace(full_file_name,'',''), '"+ os.path.join(obj, "") + "','') = ''",qry],
+        if not all_types and all_selected_types:
+            qry_m += " AND (" + " OR ".join(
+                [f"file_name LIKE '%{name.replace(chr(39), chr(39)+chr(39))}'" for name in all_selected_types]
+            ) + ")"
+
+        # Try multiple DB paths (no extension, .db, etc.) so we find the file that has backups_M
+        exts = ["", ".db", ".sqlite", ".sqlite3", ".db3"]
+        bases = [obj, request.json.get("agentName")]
+        candidate_paths = []
+        for b in bases:
+            if not b:
+                continue
+            for e in exts:
+                candidate_paths.append(os.path.join(location_dir, b + e))
+        if dbname not in candidate_paths:
+            candidate_paths.insert(0, dbname)
+
+        for candidate in candidate_paths:
+            if not os.path.isfile(candidate):
+                continue
+            try:
+                qrs = [(candidate, [qry_m])]
+                try_results = s_manager.execute_queries(qrs)
+            except Exception:
+                continue
+            if candidate not in try_results or len(try_results[candidate]) == 0:
+                continue
+            status, records = try_results[candidate][0]
+            if status == "Success" and records:
+                for row in records:
+                    from_path, file_name = (row[0] or ""), (row[1] or "")
+                    path = (from_path + os.sep + file_name) if file_name else from_path
+                    if path:
+                        file_paths.append(path)
+                break
+
+        # Fallback: query legacy "backups" table (LAN backups)
+        if not file_paths:
+            qry = (
+                "SELECT replace(replace(full_file_name,'',''), '"
+                + os.path.join(obj, "").replace("'", "''") + "','') FROM backups WHERE "
+                + "name = " + str(selectedId)
+                + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
             )
-        ]
-        results = s_manager.execute_queries(qrs)
-        for db_path, db_results in results.items():
-            print(f"Results for {db_path}:")
-            for i, (result, records) in enumerate(db_results):
-                print(f"  Query {i+1}: {result}")
-                if result == "Success":
-                    if records is not None:
-                        for file in records:
-                            print(file)
+            if not all_types and all_selected_types:
+                qry = (
+                    "SELECT replace(replace(full_file_name,'',''), '"
+                    + os.path.join(obj, "").replace("'", "''") + "','') as xs FROM backups WHERE "
+                    + "name = " + str(selectedId)
+                    + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "' "
+                    + " AND (" + " OR ".join([f"full_file_name LIKE '%{n.replace(chr(39), chr(39)+chr(39))}'" for n in all_selected_types]) + ")"
+                )
+            qrs = [(dbname, [qry])]
+            results = s_manager.execute_queries(qrs)
+            for db_path, db_results in results.items():
+                for i, (res, recs) in enumerate(db_results):
+                    if res == "Success" and recs:
+                        for file in recs:
                             file_paths.append(file[0])
-                        print(f"    Records: {records}")
+                        break
 
         backup_jobs_json = build_json_responseX(file_paths)
-        # backup_jobs_json = str(backup_jobs_json).replace("{{DRIVE}}", ":")
         if selectedAction == "browse":
             return (jsonify(backup_jobs_json), 200)
     if selectedAction == "restore":
@@ -8689,7 +8850,7 @@ def get_restore_data():
             k_qresults=[]
             qresults=[]
             try:
-                dbname = os.path.join(app.config["location"], obj) + ".db"
+                dbname = os.path.join(app.config["location"], obj)
                 # conn = sqlite3.connect(
                 #     os.path.join(app.config["location"], obj) + ".db"
                 # )
@@ -8718,7 +8879,7 @@ def get_restore_data():
                 # cursor.close()
                 # conn.close()
                 s_manager = SQLiteManager()
-                dbname = os.path.join(app.config["location"], obj) + ".db"
+                dbname = os.path.join(app.config["location"], obj)
                 files=""
                 backups_query=[]
                 # if len(selectedFiles) <= 0:
@@ -8818,6 +8979,9 @@ def get_restore_data():
                 else:
                     qresults[0]+=k_qresults[0]
                     qresults[1]=k_qresults[1]
+                # GDrive/cloud: Query 1 (backups) is empty, Query 2 (backups_M) has rows – use backups_M as file list
+                if len(qresults[0]) == 0 and len(qresults[1]) > 0:
+                    qresults[0] = list(qresults[1])
                 
                 k_qresults=None
 
@@ -8836,7 +9000,8 @@ def get_restore_data():
                 print(
                     "++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
                 )
-                return (jsonify(result={"reason": str(e)}), 500)
+                # 500 = restore failed (body has reason). Frontend must show result[0].reason, not generic "Request failed with status code 500".
+                return (jsonify(result=[{"restore": "failed", "reason": str(e)}]), 500)
 
             # file_paths = [row[0] for row in cursor.fetchall()]
             # file_paths = [row for row in cursor.fetchall()]
@@ -8888,12 +9053,46 @@ def get_restore_data():
                     mime_type="file"
                 
             for rec in file_paths:
-                
-                backup_id=str(rec[0])
-                backup_pid=str(rec[1])
-                backup_name=str(rec[11])
-                backup_name_id=str(rec[12])
-                frombackup_computer_name=str(rec[3])
+                rec_dict = dict(rec)
+                if not rec_dict.get("full_file_name"):
+                    rec_dict["full_file_name"] = (rec_dict.get("from_path") or "") + os.sep + (rec_dict.get("file_name") or "")
+                # For GDrive/cloud: backups_M has data_repod (gidn/givn), not log; use it as log so client can restore
+                if rec_dict.get("data_repod") and (not rec_dict.get("log") or rec_dict.get("log") == "{}"):
+                    try:
+                        _dr = rec_dict.get("data_repod")
+                        if isinstance(_dr, str) and _dr.strip():
+                            rec_dict["log"] = _dr
+                    except Exception:
+                        pass
+                if not rec_dict.get("log"):
+                    rec_dict["log"] = "{}"
+                rec_dict.setdefault("fpath", RestoreLocation)
+                rec_dict.setdefault("name", rec_dict.get("id"))
+                backup_id = str(rec_dict.get("id", ""))
+                backup_pid = str(rec_dict.get("name", rec_dict.get("id", "")))
+                backup_name = str(rec_dict.get("pNameText", ""))
+                backup_name_id = str(rec_dict.get("pIdText", ""))
+                frombackup_computer_name = str(rec_dict.get("from_computer", ""))
+                _tcc_value = str(rec_dict.get("full_file_name", ""))
+                # Choose a source path that actually appears in _tcc_value so replacement works
+                _rec_fpath = str(rec_dict.get("fpath", RestoreLocation))
+                try:
+                    _source_candidates = [
+                        rec_dict.get("fpath"),
+                        rec_dict.get("from_path"),
+                        targetLocation,
+                        RestoreLocation,
+                    ]
+                    for _cand in _source_candidates:
+                        if not _cand:
+                            continue
+                        _cand_str = str(_cand)
+                        _cand_norm = _cand_str.replace(":", "{{DRIVE}}")
+                        if _cand_str in _tcc_value or _cand_norm in _tcc_value:
+                            _rec_fpath = _cand_str
+                            break
+                except Exception:
+                    pass
                 
                 sktio.emit(
                     "backup_data",
@@ -8902,7 +9101,7 @@ def get_restore_data():
                         "backup_jobs": [
                             {
                                 "restore_flag":True,
-                                "name": str(rec[11]),
+                                "name": backup_name,
                                 "scheduled_time": datetime.datetime.fromtimestamp(
                                     float(j_sta)
                                 ).strftime("%H:%M:%S"),
@@ -8917,78 +9116,195 @@ def get_restore_data():
                 )
                 print(
                     "DDD "
-                    + str(rec[9]).replace(
+                    + _tcc_value.replace(
                         targetLocation.replace(":", "{{DRIVE}}"),
                         RestoreLocation.replace(":", "{{DRIVE}}"),
                     )
                 )
-                # rr_.__add__(
-                #     str(rec[9]).replace(
-                #         targetLocation.replace(":", "{{DRIVE}}"),
-                #         RestoreLocation.replace(":", "{{DRIVE}}"),
-                #     )
-                # )
                 sbd=""   #SMB id
                 sbc=""   #SMB pwd   
-                jsrepd = json.loads(rec[10])
+                jsrepd = json.loads(rec_dict.get("log", "{}"))
                 try:
                     if isinstance(jsrepd, str):
                         jsrepd = json.loads(jsrepd)
                 except:
                     print(".. .. ..")
-                rec_dict = dict(rec)
+                # Normalize GDrive gidn_list for restore: old backups may have only gidn (dict) or wrong gidn_list
+                rep_upper_pre = str(selectedStorageType).upper().replace(" ", "")
+                if rep_upper_pre in ["GDRIVE", "GOOGLEDRIVE"] and jsrepd:
+                    gidn_list = jsrepd.get("gidn_list")
+                    gidn = jsrepd.get("gidn")
+                    total_chunks = int(jsrepd.get("total_chunks", 1)) or 1
+                    if not gidn_list or not isinstance(gidn_list, list) or len(gidn_list) != total_chunks:
+                        if gidn is not None:
+                            if isinstance(gidn, list):
+                                jsrepd["gidn_list"] = gidn
+                            elif isinstance(gidn, dict):
+                                jsrepd["gidn_list"] = [gidn]
+                            else:
+                                jsrepd["gidn_list"] = [gidn]
+                            rec_dict["log"] = json.dumps(jsrepd)
                 file_name_for_manifest = rec_dict.get("file_name") or os.path.basename(
                     rec_dict.get("full_file_name", "")
                 )
-                tcc_value = str(rec[9])
+                tcc_value = _tcc_value
                 manifest_path = _final_manifest_path(tcc_value, file_name_for_manifest, backup_id)
-                if not os.path.exists(manifest_path):
-                    log_event(
-                        logger,
-                        logging.ERROR,
-                        ensure_job_id(j_sta),
-                        "restore",
-                        file_path=rec_dict.get("full_file_name"),
-                        file_id=backup_id,
-                        error_code="MISSING_CHUNKS",
-                        error_message="Manifest missing; aborting restore",
-                        extra={"event": "restore_aborted", "manifest_path": manifest_path},
-                    )
-                    resp_dict.append(
-                        {
-                            "file": rec_dict.get("full_file_name"),
-                            "restore": "failed",
-                            "reason": "MISSING_CHUNKS",
-                        }
-                    )
-                    pendingfiles = pendingfiles - 1
-                    continue
-                try:
-                    with open(manifest_path, "r", encoding="utf-8") as manifest_file:
-                        manifest_data = json.load(manifest_file)
-                    if not manifest_data.get("chunks") or not manifest_data.get("total_chunks"):
-                        raise ValueError("Manifest missing chunk data")
-                except Exception as manifest_error:
-                    log_event(
-                        logger,
-                        logging.ERROR,
-                        ensure_job_id(j_sta),
-                        "restore",
-                        file_path=rec_dict.get("full_file_name"),
-                        file_id=backup_id,
-                        error_code="MISSING_CHUNKS",
-                        error_message=str(manifest_error),
-                        extra={"event": "restore_aborted", "manifest_path": manifest_path},
-                    )
-                    resp_dict.append(
-                        {
-                            "file": rec_dict.get("full_file_name"),
-                            "restore": "failed",
-                            "reason": "MISSING_CHUNKS",
-                        }
-                    )
-                    pendingfiles = pendingfiles - 1
-                    continue
+                # GDrive/AWS/Azure/OneDrive: no local manifest; use data_repod (already in rec_dict["log"]) for restore
+                rep_upper = str(selectedStorageType).upper().replace(" ", "")
+                is_gdrive_restore = rep_upper in ["GDRIVE", "GOOGLEDRIVE"] and (
+                    jsrepd.get("gidn") is not None or (jsrepd.get("gidn_list") and len(jsrepd.get("gidn_list", [])) > 0)
+                )
+                is_aws_azure_onedrive_restore = rep_upper in ["AWSS3", "AZURE", "ONEDRIVE"] and (
+                    jsrepd.get("file_name_x") or (jsrepd.get("path") is not None and jsrepd.get("j_sta") is not None)
+                )
+                is_cloud_restore = is_gdrive_restore or is_aws_azure_onedrive_restore
+                if is_cloud_restore:
+                    total_chunks_g = int(jsrepd.get("total_chunks", 1)) or 1
+                    manifest_data = {
+                        "total_chunks": total_chunks_g,
+                        "chunks": {str(i): "" for i in range(1, total_chunks_g + 1)},
+                    }
+                    found_manifest_path = None
+                    try:
+                        if os.path.exists(manifest_path):
+                            with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                                disk_manifest = json.load(manifest_file)
+                            if disk_manifest.get("total_chunks"):
+                                manifest_data["total_chunks"] = disk_manifest.get("total_chunks")
+                            if disk_manifest.get("chunks"):
+                                manifest_data["chunks"] = disk_manifest.get("chunks")
+                            if disk_manifest.get("file_hash"):
+                                manifest_data["file_hash"] = disk_manifest.get("file_hash")
+                            found_manifest_path = manifest_path
+                    except Exception:
+                        pass
+                    if not manifest_data.get("file_hash"):
+                        try:
+                            base_temp = add_unc_temppath()
+                            base_temp_candidates = [base_temp]
+                            if str(base_temp).startswith("\\\\?\\"):
+                                base_temp_candidates.append(str(base_temp).replace("\\\\?\\", ""))
+                            from_path_raw = rec_dict.get("from_path") or ""
+                            from_path_norm = str(from_path_raw).replace(":", "{{DRIVE}}")
+                            best_manifest = None
+                            best_mtime = 0
+                            def _scan_for_manifest(scan_root, require_path_filter=True):
+                                nonlocal best_manifest, best_mtime
+                                if not scan_root or not os.path.exists(scan_root):
+                                    return
+                                for root, _, files in os.walk(scan_root):
+                                    if require_path_filter and from_path_norm and from_path_norm not in root:
+                                        continue
+                                    for fname in files:
+                                        if fname.startswith(f"{file_name_for_manifest}_") and fname.endswith(".manifest.json"):
+                                            cand = os.path.join(root, fname)
+                                            try:
+                                                mtime = os.path.getmtime(cand)
+                                            except Exception:
+                                                mtime = 0
+                                            if mtime >= best_mtime:
+                                                best_manifest = cand
+                                                best_mtime = mtime
+                            for root in base_temp_candidates:
+                                _scan_for_manifest(root, require_path_filter=True)
+                            if not best_manifest:
+                                for root in base_temp_candidates:
+                                    _scan_for_manifest(root, require_path_filter=False)
+                            if not best_manifest:
+                                _scan_for_manifest(app.config.get("UPLOAD_FOLDER"), require_path_filter=False)
+                            if best_manifest:
+                                with open(best_manifest, "r", encoding="utf-8") as manifest_file:
+                                    temp_manifest = json.load(manifest_file)
+                                if temp_manifest.get("total_chunks"):
+                                    manifest_data["total_chunks"] = temp_manifest.get("total_chunks")
+                                if temp_manifest.get("chunks"):
+                                    manifest_data["chunks"] = temp_manifest.get("chunks")
+                                if temp_manifest.get("file_hash"):
+                                    manifest_data["file_hash"] = temp_manifest.get("file_hash")
+                                found_manifest_path = best_manifest
+                                if not os.path.exists(manifest_path):
+                                    try:
+                                        os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+                                        import shutil
+                                        shutil.copyfile(best_manifest, manifest_path)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                    if not manifest_data.get("file_hash") and jsrepd:
+                        for key in ["file_hash", "filehash", "hash", "sha256", "sha256Checksum"]:
+                            if jsrepd.get(key):
+                                manifest_data["file_hash"] = str(jsrepd.get(key))
+                                break
+                    try:
+                        log_event(
+                            logger,
+                            logging.INFO,
+                            ensure_job_id(j_sta),
+                            "restore",
+                            file_path=rec_dict.get("full_file_name"),
+                            file_id=backup_id,
+                            error_code="",
+                            error_message="",
+                            extra={
+                                "event": "restore_manifest_selected",
+                                "manifest_path": found_manifest_path,
+                                "final_manifest_path": manifest_path,
+                                "manifest_total_chunks": manifest_data.get("total_chunks"),
+                                "manifest_has_chunks": bool(manifest_data.get("chunks")),
+                                "manifest_file_hash": manifest_data.get("file_hash"),
+                            },
+                        )
+                    except Exception:
+                        pass
+                else:
+                    if not os.path.exists(manifest_path):
+                        log_event(
+                            logger,
+                            logging.ERROR,
+                            ensure_job_id(j_sta),
+                            "restore",
+                            file_path=rec_dict.get("full_file_name"),
+                            file_id=backup_id,
+                            error_code="MISSING_CHUNKS",
+                            error_message="Manifest missing; aborting restore",
+                            extra={"event": "restore_aborted", "manifest_path": manifest_path},
+                        )
+                        resp_dict.append(
+                            {
+                                "file": rec_dict.get("full_file_name"),
+                                "restore": "failed",
+                                "reason": "MISSING_CHUNKS",
+                            }
+                        )
+                        pendingfiles = pendingfiles - 1
+                        continue
+                    try:
+                        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                            manifest_data = json.load(manifest_file)
+                        if not manifest_data.get("chunks") or not manifest_data.get("total_chunks"):
+                            raise ValueError("Manifest missing chunk data")
+                    except Exception as manifest_error:
+                        log_event(
+                            logger,
+                            logging.ERROR,
+                            ensure_job_id(j_sta),
+                            "restore",
+                            file_path=rec_dict.get("full_file_name"),
+                            file_id=backup_id,
+                            error_code="MISSING_CHUNKS",
+                            error_message=str(manifest_error),
+                            extra={"event": "restore_aborted", "manifest_path": manifest_path},
+                        )
+                        resp_dict.append(
+                            {
+                                "file": rec_dict.get("full_file_name"),
+                                "restore": "failed",
+                                "reason": "MISSING_CHUNKS",
+                            }
+                        )
+                        pendingfiles = pendingfiles - 1
+                        continue
                 if str(selectedStorageType) =="UNC": # in ["UNC","NAS"]:
                     print(jsrepd)  
                     #jsrepd['scombm']
@@ -9018,8 +9334,11 @@ def get_restore_data():
                             #     jsonify({"file": "*", "restore": "failed", "reason": (str(e))}),
                             #     500,
                             # )
-                if mime_type =="file" and (not RestoreLocation.endswith("".join(dict(rec)['full_file_name'].replace(dict(rec)['from_path'],"")))):
-                    original_p =dict(rec)['full_file_name'].replace(dict(rec)['from_path'],"")
+                full_name = rec_dict.get("full_file_name") or ""
+                from_path = rec_dict.get("from_path") or ""
+                suffix = full_name.replace(from_path, "")
+                if mime_type == "file" and full_name and (not RestoreLocation.endswith("".join(suffix))):
+                    original_p = suffix
                     if original_p.startswith(os.sep):
                         original_p="".join(original_p.split(os.sep)[0:])
                     RestoreLocation = os.path.join(RestoreLocation,original_p)
@@ -9032,15 +9351,15 @@ def get_restore_data():
                 except:
                     pass
                 header = {
-                    "id": str(rec[0]),
-                    "pid": str(rec[1]),
+                    "id": backup_id,
+                    "pid": backup_pid,
                     "obj": str(obj),
-                    "pnametext": str(rec[11]),
-                    "mime": str(rec[6]),
+                    "pnametext": backup_name,
+                    "mime": str(rec_dict.get("mime_type", "file")),
                     "objtarget": str(obj), #str(objTarget),
                     "tcc": base64.b64encode(
                         gzip.compress(
-                            str(rec[9]).encode("UTF-8"),
+                            _tcc_value.encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
@@ -9061,28 +9380,16 @@ def get_restore_data():
                     ),
                     "tccsrc": base64.b64encode(
                         gzip.compress(
-                            str(rec[9]).encode("UTF-8"),
+                            _tcc_value.encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
                     ),
-                    # "tccx": base64.b64encode(
-                    #     gzip.compress(
-                    #         str(rec[9])
-                    #         .replace(
-                    #             targetLocation.replace(":", "{{DRIVE}}"),
-                    #             str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
-                    #         ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else '')
-                    #         .encode("UTF-8"),
-                    #         9,
-                    #         mtime=time.time(),
-                    #     )
-                    # ),
                     "tccx": base64.b64encode(
                         gzip.compress(
-                            str(rec[9])
+                            _tcc_value
                             .replace(
-                                str(rec[22]).replace(":", "{{DRIVE}}"),
+                                _rec_fpath.replace(":", "{{DRIVE}}"),
                                 str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
                             ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else '')
                             .encode("UTF-8"),
@@ -9099,39 +9406,26 @@ def get_restore_data():
                     ),
                     "repd": base64.b64encode(
                         gzip.compress(
-                            str(rec[10]).encode("UTF-8"),
+                            str(rec_dict.get("log") or "{}").encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
                     ),
                     "jid": base64.b64encode(
                         gzip.compress(
-                            str(rec[12]).encode("UTF-8"),
+                            backup_name_id.encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
                     ),
-                    # "tccn": base64.b64encode(
-                    #     gzip.compress(
-                    #         os.path.join(
-                    #             str(rec[4]).replace(
-                    #                 targetLocation.replace(":", "{{DRIVE}}"),
-                    #                 str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
-                    #             ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else ''),
-                    #             str(rec[8]),
-                    #         ).encode("UTF-8"),
-                    #         9,
-                    #         mtime=time.time(),
-                    #     )
-                    # ),
                     "tccn": base64.b64encode(
                         gzip.compress(
                             os.path.join(
-                                str(rec[4]).replace(
-                                    str(rec[22]).replace(":", "{{DRIVE}}"),
+                                str(rec_dict.get("from_path", "")).replace(
+                                    _rec_fpath.replace(":", "{{DRIVE}}"),
                                     str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
                                 ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else ''),
-                                str(rec[8]),
+                                str(rec_dict.get("file_name", "")),
                             ).encode("UTF-8"),
                             9,
                             mtime=time.time(),
@@ -9189,8 +9483,11 @@ def get_restore_data():
                     res_json["t14"]=str(j_sta)
                     res_json["isMetaFile"]=jsrepd.get('isMetaFile',False)
                     try:
-                        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
-                            res_json["chunk_manifest"] = json.load(manifest_file)
+                        if is_cloud_restore:
+                            res_json["chunk_manifest"] = manifest_data
+                        else:
+                            with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                                res_json["chunk_manifest"] = json.load(manifest_file)
                     except Exception:
                         res_json["chunk_manifest"] = {}
                     
@@ -9203,23 +9500,53 @@ def get_restore_data():
                     res_json.update({"file_start_end":""})
                     res_json.update({"file_restore_timetaken":""})
                     re.update({'extd':base64.b64encode(gzip.compress(str(res_json).encode("UTF-8"), 9,mtime=time.time(),))})
-                    res = requests.post(
-                        f"{objIPTarget}/restoretest", headers=re, json={"test": "0","fci":str(fci),"ftotal":str(ftotal)}
-                    )
-                    if res.status_code in [200,201]:
-                        files_restored+=1
-                    # date_time_finish_now =datetime.datetime.now()                    
-                    # res_json.update({"file_start_end":date_time_finish_now.strftime("%Y %m %d, %H:%M:%S")})
-                    # res_json.update({"file_restore_timetaken":(date_time_finish_now - date_time_now).seconds })
-                    # res_json.update(res.json())
-                    # resp_dict.append(res_json)
+                    res = None
+                    try:
+                        res = requests.post(
+                            f"{objIPTarget}/restoretest", headers=re, json={"test": "0","fci":str(fci),"ftotal":str(ftotal)},
+                            timeout=300
+                        )
+                        if res.status_code in [200,201]:
+                            files_restored+=1
+                    except Exception as e:
+                        log_event(
+                            logger, logging.WARNING, ensure_job_id(j_sta), "restore",
+                            file_path=rec_dict.get("full_file_name"), file_id=backup_id,
+                            error_code="CLIENT_RESTORE_REQUEST_FAILED", error_message=str(e),
+                            extra={"event": "restore_client_request_failed", "objIPTarget": objIPTarget},
+                        )
+                        res_json["restore"] = "failed"
+                        res_json["reason"] = str(e) if str(e) else "Client connection closed or timeout"
                 except Exception as e:
-                    print("")  # return (jsonify(result=resp_dict), 500)
+                    print("")
                 
                 date_time_finish_now =datetime.datetime.now()                    
                 res_json.update({"file_start_end":date_time_finish_now.strftime("%Y %m %d, %H:%M:%S")})
                 res_json.update({"file_restore_timetaken":(date_time_finish_now - date_time_now).seconds })
-                res_json.update(res.json())
+                if res is not None:
+                    try:
+                        res_body = res.json()
+                        res_json.update(res_body)
+                        if res.status_code not in [200, 201]:
+                            client_reason = (res_body or {}).get("reason", getattr(res, "text", "") or "")
+                            log_event(
+                                logger, logging.WARNING, ensure_job_id(j_sta), "restore",
+                                file_path=rec_dict.get("full_file_name"), file_id=backup_id,
+                                error_code="CLIENT_RESTORE_5XX",
+                                error_message=client_reason or str(res.status_code),
+                                extra={"event": "restore_client_5xx", "status": res.status_code, "reason": client_reason},
+                            )
+                            if client_reason:
+                                res_json["reason"] = client_reason
+                    except Exception as parse_err:
+                        res_json.setdefault("restore", "failed")
+                        res_json.setdefault("reason", f"Client returned {res.status_code}")
+                        try:
+                            raw = getattr(res, "text", None) or ""
+                            if raw:
+                                res_json["reason"] = raw[:500]
+                        except Exception:
+                            pass
                 resp_dict.append(res_json)  
                 pendingfiles=pendingfiles-1
                 
@@ -9230,7 +9557,7 @@ def get_restore_data():
                         "backup_jobs": [
                             {
                                 "restore_flag":True,
-                                "name": str(rec[11]),
+                                "name": backup_name,
                                 "scheduled_time": datetime.datetime.fromtimestamp(
                                     float(j_sta)
                                 ).strftime("%H:%M:%S"),
@@ -9251,34 +9578,6 @@ def get_restore_data():
                 filescount = float(ftotal) - float(pendingfiles)
             except:
                 filescount=0
-            try:
-
-                # datetime object containing current date and time
-                nows = datetime.datetime.now()
-                dt_string = nows.strftime("%d/%m/%Y %H:%M:%S")
-                
-
-
-                m_j = {
-                    "agent": str(f"from {selectedAgent} to {selectedTargetAgent}"),
-                    "idx":str(app.config.get("getCode",None)),
-                    "event":"restore",
-                    "job_id":backup_id,
-                    "job_name":backup_name,
-                    "error_desc":str(f"restore of {filescount} files done from {selectedAgent} to {selectedTargetAgent}"),
-                    "missed_time":str(nows)
-                }
-                res = requests.post(
-                    "http://127.0.0.1:53335/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
-                    json=m_j,
-                    #headers=headers,
-                    #timeout=5000,
-                )
-
-            except:
-                print("")
-
-            print(res.content)
             from collections import defaultdict
             unique_records = set()
             result = []
@@ -9362,6 +9661,55 @@ def get_restore_data():
 
             restored_count = sum(1 for f in resp_dict if f.get("restore") == "success")
             failed_count = sum(1 for f in resp_dict if f.get("restore") == "failed")
+            try:
+                final_status = "failed" if failed_count > 0 else "completed"
+                accuracy_pct = (restored_count / float(totalfiles)) * 100 if totalfiles else 0
+                sktio.emit(
+                    "backup_data",
+                    {
+                        "backup_jobs": [
+                            {
+                                "restore_flag": True,
+                                "name": backup_name,
+                                "scheduled_time": datetime.datetime.fromtimestamp(
+                                    float(j_sta)
+                                ).strftime("%H:%M:%S"),
+                                "agent": str(torestore_computer_name),
+                                "progress_number": 0,
+                                "id": j_sta,
+                                "restore_accuracy": accuracy_pct,
+                                "restore_location": RestoreLocation,
+                                "finished": True,
+                                "status": final_status,
+                            }
+                        ]
+                    },
+                )
+            except Exception:
+                print("")
+            # Only notify "restored" when all files succeed
+            if restored_count > 0 and failed_count == 0:
+                try:
+                    nows = datetime.datetime.now()
+                    m_j = {
+                        "agent": str(f"from {selectedAgent} to {selectedTargetAgent}"),
+                        "idx": str(app.config.get("getCode", None)),
+                        "event": "restore",
+                        "job_id": backup_id,
+                        "job_name": backup_name,
+                        "error_desc": str(
+                            f"restore of {restored_count} files done from {selectedAgent} to {selectedTargetAgent}"
+                        ),
+                        "missed_time": str(nows),
+                    }
+                    res = requests.post(
+                        "http://127.0.0.1:53335/api/sendtoserver",
+                        json=m_j,
+                    )
+                    if res is not None:
+                        print(res.content)
+                except Exception:
+                    print("")
             log_event(
                 logger,
                 logging.INFO,
@@ -9383,28 +9731,9 @@ def get_restore_data():
         # backup_jobs_json = str(backup_jobs_json).replace("{{DRIVE}}", ":")
         # return 200  # jsonify(result=rr)
         except Exception as e:
-            try:
-                nows = datetime.datetime.now()
-                dt_string = nows.strftime("%d/%m/%Y %H:%M:%S")
-                m_j = {
-                    "agent": str(f"from {selectedAgent} to {selectedTargetAgent}"),
-                    "idx":str(app.config.get("getCode",None)),
-                    "event":"restore",
-                    "job_id":backup_id,
-                    "job_name":backup_name,
-                    "error_desc":str(f"restore of {0} files done from {selectedAgent} to {selectedTargetAgent} reason : {str(e)}"),
-                    "missed_time":str(nows)
-                }
-                res = requests.post(
-                    "http://127.0.0.1:53335/api/sendtoserver",  # "http://192.168.2.25:5000/activationrequest", #"http://192.168.2.23:8000/api/v1/agent-activation/",  # "http://192.168.2.25:8000/activationrequest/",
-                    json=m_j,
-                    #headers=headers,
-                    #timeout=5000,
-                )
-            except:
-                print("")
 
-            return (jsonify(result={"reason": str(e)}), 500)
+            # 500 = restore failed (body has reason). Frontend must show result[0].reason or result.reason, not generic "Request failed with status code 500".
+            return (jsonify(result=[{"restore": "failed", "reason": str(e)}]), 500)
 
         # return 200
 
@@ -9428,10 +9757,10 @@ def get_restore_data():
             "googledrive",
         ]:
             selectedStorageType = "GDRIVE','Google Drive"
+        agent_candidates = [value for value in {requested_agent, selectedAgent} if value]
         if selectedAction == "fetchAll":
             selectedStorageType = "local','local storage','LAN','GDRIVE','Google Drive','UNC','AWSS3','AZURE','ONEDRIVE" #','NAS"
 
-            agent_candidates = [value for value in {requested_agent, selectedAgent} if value]
         agent_filter_clause = ""
         if agent_candidates:
             agent_filter_clause = " and (from_computer in ('" + "', '".join(agent_candidates) + "'))"
@@ -9488,28 +9817,79 @@ def get_restore_data():
         batch_size = 1000
         backup_jobs_json = []
         s_manager = SQLiteManager()
-        dbname = os.path.join(app.config["location"], obj) + ".db"
-        qrs = [
-            (
-                dbname,
-                [
-                    "SELECT backups_M.id,date_time,from_computer,from_path,"
-                    + " data_repo,mime_type,file_name,size,pNameText,"
-                    + " pIdText,bkupType,((sum_done*100)/sum_all) as wdone FROM backups_M where "
-                    + " ((id * 1000 >= "
-                    + str(startDate)
-                    + ") and (id * 1000 <= "
-                    + str(endDate)
-                    + "))"
-                    + " and (data_repo in('"
-                    + selectedStorageType
-                    + "'))"
-                    + agent_filter_clause
-                    + " order by date_time desc"
-                ],
-            )
-        ]
-        results = s_manager.execute_queries(qrs)
+        dbname = os.path.join(app.config["location"], obj)
+        restore_query = (
+            "SELECT backups_M.id,date_time,from_computer,from_path,"
+            + " data_repo,mime_type,file_name,size,pNameText,"
+            + " pIdText,bkupType,((sum_done*100)/sum_all) as wdone FROM backups_M where "
+            + " ((id * 1000 >= "
+            + str(startDate)
+            + ") and (id * 1000 <= "
+            + str(endDate)
+            + "))"
+            + " and (data_repo in('"
+            + selectedStorageType
+            + "'))"
+            + agent_filter_clause
+            + " order by date_time desc"
+        )
+        # Try multiple path variants: DBs may have no extension or .db/.sqlite/.sqlite3/.db3
+        # and may be keyed by computer_id (obj) or by agent name (selectedAgent)
+        location_dir = app.config.get("location") or ""
+        db_extensions = ("", ".db", ".sqlite", ".sqlite3", ".db3")
+        candidate_paths = []
+        for base_name in (obj, selectedAgent, requested_agent):
+            if not base_name:
+                continue
+            for ext in db_extensions:
+                p = os.path.join(location_dir, base_name + ext)
+                if p not in candidate_paths:
+                    candidate_paths.append(p)
+        for base_name in (obj, selectedAgent):
+            if not base_name:
+                continue
+            for ext in db_extensions:
+                p = os.path.join(os.getcwd(), base_name + ext)
+                if p not in candidate_paths:
+                    candidate_paths.append(p)
+        # If no explicit paths yet, ensure dbname (location/obj) is tried
+        if dbname not in candidate_paths:
+            candidate_paths.insert(0, dbname)
+        results = {}
+        for candidate in candidate_paths:
+            if not os.path.isfile(candidate):
+                continue
+            qrs = [(candidate, [restore_query])]
+            try:
+                try_results = s_manager.execute_queries(qrs)
+            except Exception:
+                continue
+            if candidate in try_results and len(try_results[candidate]) > 0:
+                status, records = try_results[candidate][0]
+                if status == "Success" and records:
+                    results = {dbname: [(status, records)]}
+                    break
+        if not results and os.path.isdir(location_dir):
+            # Fallback: list directory and try any file that looks like agent/obj (any extension)
+            try:
+                for fname in os.listdir(location_dir):
+                    base, ext = os.path.splitext(fname)
+                    if base not in (obj, selectedAgent, requested_agent):
+                        continue
+                    candidate = os.path.join(location_dir, fname)
+                    if not os.path.isfile(candidate):
+                        continue
+                    qrs = [(candidate, [restore_query])]
+                    try_results = s_manager.execute_queries(qrs)
+                    if candidate in try_results and len(try_results[candidate]) > 0:
+                        status, records = try_results[candidate][0]
+                        if status == "Success" and records:
+                            results = {dbname: [(status, records)]}
+                            break
+            except Exception:
+                pass
+        if not results:
+            results = s_manager.execute_queries([(dbname, [restore_query])])
 
         for db_path, db_results in results.items():
             print(f"Results for {db_path}:")
@@ -10437,12 +10817,17 @@ def _ensure_clientnodes_loaded():
  
  
 def _normalize_ip_url(value):
-    value = str(value or "")
+    value = str(value or "").strip()
     if not value:
         return ""
     if value.startswith("http://") or value.startswith("https://"):
         return value
-    # if raw IP (no scheme/port), add defaults
+    # already has host:port (e.g. 10.109.164.78:7777) – add scheme only
+    if ":" in value:
+        parts = value.rsplit(":", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            return f"http://{value}"
+    # raw IP (no port), add scheme and default port
     if value.count(".") == 3:
         return f"http://{value}:7777"
     return value
@@ -10514,9 +10899,11 @@ def restore_nodes():
                 )
  
                 if x:
-                    ip_addr = _normalize_ip_url(x.get("ipAddress"))
-                    is_online = is_less_than_2_minutes(ip_addr) if ip_addr else False
- 
+                    # Use same ipAddress string as /clientnodes for online check (consistent status)
+                    ip_raw = str(x.get("ipAddress") or "")
+                    is_online = is_less_than_2_minutes(ip_raw) if ip_raw else False
+                    ip_addr = _normalize_ip_url(ip_raw)  # normalized for response
+
                     endpoints.append({
                         "idx": x["key"],
                         "agent": x["agent"],

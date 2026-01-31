@@ -113,11 +113,11 @@ const RestoreData = ({ progressPopupData, setShowProgress, setShowRestorePopup, 
 
     const Notification_local_Data = {
       id: Date.now(),
-      message: `✅ Backup: ${reStoreName} is currently being restored on ${targetAgentName} at ${RestoreLocation}`,
+      message: `⏳ Restore started: ${reStoreName} on ${targetAgentName} at ${RestoreLocation}`,
       timestamp: new Date(),
       isRead: false,
     };
-    sendNotification(`✅ Backup: ${reStoreName} is currently being restored on ${targetAgentName} at ${RestoreLocation}`)
+    sendNotification(`⏳ Restore started: ${reStoreName} on ${targetAgentName} at ${RestoreLocation}`)
     setNotificationData((prev) => [...prev, Notification_local_Data]);
 
     const restoreRequest = async () => {
@@ -135,16 +135,27 @@ const RestoreData = ({ progressPopupData, setShowProgress, setShowRestorePopup, 
         setRestoreDataCollect(data);
         setReStoreTableData((prev) => [data, ...prev]);
 
-        const downloadEvent = `✅ Backup:${restoreTotalData?.name} is restored on ${targetAgentName} at ${RestoreLocation}`;
-        handleLogsSubmit(downloadEvent);
-        sendNotification(downloadEvent);
+        // API contract: 200 = request processed. Check result for per-file outcome (restore: "success" | "failed").
+        const resultList = data?.result;
+        const failedItem = Array.isArray(resultList) ? resultList.find((r) => r?.restore === "failed") : null;
+        if (failedItem?.reason) {
+          // 200 but restore failed (e.g. client error) – show actual reason
+          const msg = failedItem.reason;
+          sendNotification(`❌ Restore Failed: ${reStoreName} - ${msg}`);
+          setNotificationData((prev) => [...prev, { id: Date.now(), message: `❌ Restore Failed: ${reStoreName} - ${msg}`, timestamp: new Date(), isRead: false }]);
+        } else {
+          const downloadEvent = `✅ Backup:${restoreTotalData?.name} is restored on ${targetAgentName} at ${RestoreLocation}`;
+          handleLogsSubmit(downloadEvent);
+          sendNotification(downloadEvent);
+        }
       } catch (error) {
         console.error("Error:", error);
 
-        // ✅ Create error object
+        // ✅ Create error object – prefer reason from API (client restore failure) over generic message
+        const apiReason = error.response?.data?.result?.[0]?.reason || error.response?.data?.reason;
         const errorData = {
           error: true,
-          message: error.response?.data?.message || error.message || "Restore request failed",
+          message: apiReason || error.response?.data?.message || error.message || "Restore request failed",
           jobName: reStoreName,
           statusCode: error.response?.status || 500
         };

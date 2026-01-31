@@ -1,4 +1,4 @@
-﻿
+
 
 from ast import With
 import chunk
@@ -10,6 +10,8 @@ import stat
 from time import time
 import py7zr
 import io
+import shutil
+import tempfile
 from fClient.shad import OpenShFile
 
 class p7zstd:
@@ -181,9 +183,34 @@ class p7zstd:
         try:
             with py7zr.SevenZipFile(encrypted_data, 'r', password=self.password,filters=self._get_filter()) as archive:
                 print("Archive files:", archive.getnames())
-                print("Get filter",self._get_filter())  
-                extracted = archive.readall()
-                print("Files extracted:", list(extracted.keys()))
+                print("Get filter",self._get_filter())
+                extracted = None
+                names = archive.getnames() or []
+                if hasattr(archive, "readall"):
+                    extracted = archive.readall()
+                elif hasattr(archive, "read"):
+                    extracted = archive.read(names) if names else {}
+                else:
+                    extracted = {}
+                    temp_dir = tempfile.mkdtemp(prefix="apna_restore_")
+                    try:
+                        archive.extractall(path=temp_dir)
+                        if names:
+                            for name in names:
+                                path = os.path.normpath(os.path.join(temp_dir, name))
+                                if os.path.isfile(path):
+                                    with open(path, "rb") as chunk_file:
+                                        extracted[name] = io.BytesIO(chunk_file.read())
+                        else:
+                            for root, _, files in os.walk(temp_dir):
+                                for file in files:
+                                    path = os.path.join(root, file)
+                                    rel_path = os.path.relpath(path, temp_dir)
+                                    with open(path, "rb") as chunk_file:
+                                        extracted[rel_path] = io.BytesIO(chunk_file.read())
+                    finally:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                print("Files extracted:", list(extracted.keys()) if hasattr(extracted, "keys") else [])
                 data=io.BytesIO()
                 if extracted:
                     for edata in extracted:# archive.readall().items: #extracted:

@@ -33,8 +33,7 @@ from reactapp.reactapp import ReactProxyReplacer2
 
 #from werkzeug.middleware.profiler import ProfilerMiddleware
 
-app = Flask(__name__, static_url_path='/rapp/static', static_folder='rapp') 
-app = Flask(__name__, static_url_path='', static_folder='rapp')
+app = Flask(__name__, static_url_path='/rapp/static', static_folder='rapp')
 from FlaskWebProject3.ephemeral_crypto import init_crypto ##kartik
 init_crypto(app)  ##kartik
 from fingerprint import getCodeHost,getCode,getKey,getRequestKey,get_hKey
@@ -154,7 +153,14 @@ custom_csp = {
     ],
     'connect-src': [
         "'self'",
-        'https://chatbot.apnabackup.com'
+        'https://chatbot.apnabackup.com',
+        # Allow API/handshake when page is at localhost but config uses LAN IP (same machine, different origins)
+        'http://127.0.0.1:53335',
+        'http://localhost:53335',
+        'http://192.168.2.5:53335',
+        'ws://127.0.0.1:53335',
+        'ws://localhost:53335',
+        'ws://192.168.2.5:53335',
     ],
     'frame-src': [
         "'self'",

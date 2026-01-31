@@ -305,7 +305,7 @@ const SelectEndpointPopup = ({
                                                     <div
                                                         className={`endpoint-icon_endpoint_data
                                                         ${(ep.ip?.length > 30 || ep.ipAddress?.length > 30) ? "lostendpoint" : ""}
-                                                        ${(checkApi ? ep.lastConnected === "True" : ep.lastConnected !== "True") ? "offline-endpoint" : ""}`}
+                                                        ${ep.lastConnected !== "True" ? "offline-endpoint" : ""}`}
                                                     />
                                                     <div className="endpoint-name_endpoint_data">{ep.agent}</div>
                                                 </div>
@@ -334,7 +334,7 @@ const SelectEndpointPopup = ({
                                                     <div
                                                         className={`endpoint-icon_endpoint_data
                                                         ${(ep.ip?.length > 30 || ep.ipAddress?.length > 30) ? "lostendpoint" : ""}
-                                                        ${(checkApi ? ep.lastConnected === "True" : ep.lastConnected !== "True") ? "offline-endpoint" : ""}`}
+                                                        ${ep.lastConnected !== "True" ? "offline-endpoint" : ""}`}
 
                                                     />
                                                     <div className="endpoint-name_endpoint_data">  {
@@ -401,14 +401,12 @@ const SelectEndpointPopup = ({
                                                             </td> */}
 
                                                             <td
-                                                                className={`px-4 py-2 border ${(checkApi ? ep.lastConnected === "False" : ep.lastConnected === "True")
+                                                                className={`px-4 py-2 border ${ep.lastConnected === "True"
                                                                     ? 'text-green-600'
                                                                     : 'text-red-600'
                                                                     }`}
                                                             >
-                                                                {(checkApi ? ep.lastConnected === "False" : ep.lastConnected === "True")
-                                                                    ? "Online"
-                                                                    : "Offline"}
+                                                                {ep.lastConnected === "True" ? "Online" : "Offline"}
                                                             </td>
                                                         </tr>
                                                     ))}

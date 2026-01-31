@@ -262,9 +262,9 @@ const Restorepp = ({ searchQuery = '' }) => {
 
                                 const fileData = {
                                     name: fileName,
-                                    status: (job.finished || job.progress_number >= 100) ? "completed" :
-                                        (job.progress_number > 0 && job.progress_number < 100) ? "restoring" : // Changed to 'restoring'
-                                            (job.status === "failed") ? "failed" :
+                                    status: (job.status === "failed") ? "failed" :
+                                        (job.finished || job.progress_number >= 100) ? "completed" :
+                                            (job.progress_number > 0 && job.progress_number < 100) ? "restoring" :
                                                 "pending",
                                     progress: Math.min(job.progress_number, 100), // Original progress 0-100
                                     lastUpdated: Date.now()
@@ -377,7 +377,9 @@ const Restorepp = ({ searchQuery = '' }) => {
                             return newAnimatedData;
                         });
 
-                        if (job.restore_flag && (job.progress_number <= 0 || job.finished) && job?.status !== "counting") {
+                        const isLegacyCompleted = !job?.status && job.finished;
+                        const isCompletedEvent = job?.status === "completed" || isLegacyCompleted;
+                        if (job.restore_flag && isCompletedEvent && job?.status !== "counting") {
                             showToast(`${job?.name} is restored on ${job?.agent} at ${job?.restore_location}`, "success");
                         }
 
@@ -398,9 +400,9 @@ const Restorepp = ({ searchQuery = '' }) => {
 
                                 const fileData = {
                                     name: fileName,
-                                    status: (job.finished || job.progress_number >= 100) ? "completed" :
-                                        (job.progress_number > 0 && job.progress_number < 100) ? "restoring" : // Changed to 'restoring'
-                                            (job.status === "failed") ? "failed" :
+                                    status: (job.status === "failed") ? "failed" :
+                                        (job.finished || job.progress_number >= 100) ? "completed" :
+                                            (job.progress_number > 0 && job.progress_number < 100) ? "restoring" :
                                                 "pending",
                                     progress: Math.min(job.progress_number, 100), // Original progress 0-100
                                     lastUpdated: Date.now(),
@@ -439,9 +441,9 @@ const Restorepp = ({ searchQuery = '' }) => {
     const getStatusIcon = (progress, finished, status) => {
         if (status === "failed") {
             return <XCircle className="w-5 h-5 text-red-500" />;
-        } else if (finished || progress == 0) {
+        } else if (status === "completed" || finished) {
             return <CheckCircle className="w-5 h-5 text-green-500" />;
-        } else if (progress <= 100 > 0) {
+        } else if (progress > 0) {
             return <Download className="w-5 h-5 text-blue-500 animate-pulse" />;
         } else {
             return <Clock className="w-5 h-5 text-gray-400" />;
@@ -452,9 +454,9 @@ const Restorepp = ({ searchQuery = '' }) => {
     const getStatusText = (progress, finished, status) => {
         if (status === "failed") {
             return 'Failed';
-        } else if (finished || progress == 0) {
+        } else if (status === "completed" || finished) {
             return 'Completed';
-        } else if (progress <= 100 > 0) {
+        } else if (progress > 0) {
             return 'Restoring';
         } else {
             return 'Pending';
@@ -641,9 +643,11 @@ const Restorepp = ({ searchQuery = '' }) => {
                                             const effectiveJobProgress = Number(jobToDisplay.progress_number ?? 0);
                                             const isFileLevel = jobToDisplay.status === "counting" && !!jobToDisplay.filename;
 
-                                            const isCompleted = jobToDisplay.finished || jobToDisplay.progress_number == 0;
-
-                                            const isRestoring = jobToDisplay.progress_number > 0 && !isCompleted && jobToDisplay.status !== 'failed';
+                                            const isFailed = jobToDisplay.status === 'failed';
+                                            const isCompleted =
+                                                jobToDisplay.status === 'completed' ||
+                                                (jobToDisplay.finished && !jobToDisplay.status);
+                                            const isRestoring = !isFailed && !isCompleted && jobToDisplay.progress_number > 0;
                                             const expansionKey = `${agent}-${job.id}`;
                                             const isExpanded = expandedRestores[expansionKey];
                                             const jobHasFiles = hasFiles(agent, job.id);
@@ -655,12 +659,16 @@ const Restorepp = ({ searchQuery = '' }) => {
                                             let displayProgressValue = 0;
 
                                             if (hasJobLevelProgress) {
-                                                displayProgressValue = Math.max(
-                                                    0,
-                                                    100 - Math.min(100, effectiveJobProgress)
-                                                );
+                                                const accuracy = Number(jobToDisplay.restore_accuracy ?? 0);
+                                                if (isFailed || isCompleted) {
+                                                    displayProgressValue = Math.max(0, Math.min(100, accuracy));
+                                                } else {
+                                                    displayProgressValue = Math.max(
+                                                        0,
+                                                        100 - Math.min(100, effectiveJobProgress)
+                                                    );
+                                                }
                                             } else {
-                                                // No job-level progress yet → always 0
                                                 displayProgressValue = 0;
                                             }
 

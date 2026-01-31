@@ -368,7 +368,7 @@ const Backupp = ({ searchQuery = '' }) => {
                 // showToast("❌ WebSocket failed to reconnect!", "error");
             });
 
-            // Initial backup jobs on start
+            // Initial backup jobs on start (incl. "initiating" – show dialog/card as soon as job starts)
             socket.current.on("starting", (data) => {
                 if (!data || !data.backup_jobs) return;
                 try {
@@ -389,8 +389,34 @@ const Backupp = ({ searchQuery = '' }) => {
                             } else {
                                 newAgentData[agent].push(job);
                             }
-
+                            try {
+                                localStorage.setItem("storedAgentDataa", encryptData(JSON.stringify(newAgentData)));
+                            } catch (e) {
+                                console.error("Failed to persist agentData from starting:", e);
+                            }
                             return newAgentData;
+                        });
+
+                        setAnimatedData(prev => {
+                            const newAnimatedData = { ...prev };
+                            if (!newAnimatedData[agent]) newAnimatedData[agent] = [];
+                            const existingIndex = newAnimatedData[agent].findIndex(j => j.id === job.id);
+                            const displayJob = {
+                                ...job,
+                                progress_number: job.progress_number ?? 0,
+                                finished: job.status === "failed" ? false : (job.finished === true || (job.progress_number >= 100)),
+                            };
+                            if (existingIndex !== -1) {
+                                newAnimatedData[agent][existingIndex] = displayJob;
+                            } else {
+                                newAnimatedData[agent].push(displayJob);
+                            }
+                            try {
+                                localStorage.setItem("storedAnimatedDataa", encryptData(JSON.stringify(newAnimatedData)));
+                            } catch (e) {
+                                console.error("Failed to persist animatedData from starting:", e);
+                            }
+                            return newAnimatedData;
                         });
 
                         // Handle file-level updates from "starting" event
@@ -527,7 +553,8 @@ const Backupp = ({ searchQuery = '' }) => {
 
 
 
-                                finished: job.finished === true || job.progress_number >= 100,
+                                // When server/client reports failed, do not show as completed (avoids 100% + green)
+                                finished: job.status === "failed" ? false : (job.finished === true || job.progress_number >= 100),
                                 accuracy: job.accuracy || 100,
                                 Jname: job.name
                             };
@@ -636,12 +663,12 @@ const Backupp = ({ searchQuery = '' }) => {
         }
     }, []);
 
-    // FIXED: Updated getStatusIcon to prioritize finished flag
+    // FIXED: Updated getStatusIcon to prioritize finished flag; failed never shows as completed
     const getStatusIcon = (job) => {
         const isFailed = job.status === "failed";
         const isInitiating = job.status === "initiating";
         const isCounting = job.status === "counting";
-        const isCompleted = !isCounting && (job.finished === true || job.progress_number >= 100);
+        const isCompleted = !isCounting && job.status !== "failed" && (job.finished === true || job.progress_number >= 100);
         const isUploading = !isCounting && !isCompleted && job.progress_number > 0;
 
         // if (isInitiating) {
@@ -666,11 +693,11 @@ const Backupp = ({ searchQuery = '' }) => {
     };
 
 
-    // FIXED: Updated getStatusText to prioritize finished flag
+    // FIXED: Updated getStatusText to prioritize finished flag; failed never shows as completed
     const getStatusText = (job) => {
         const isInitiating = job.status === "initiating";
         const isCounting = job.status === "counting";
-        const isCompleted = job.finished === true || job.progress_number >= 100;
+        const isCompleted = job.status !== "failed" && (job.finished === true || job.progress_number >= 100);
         const isUploading = !isCounting && !isCompleted && job.progress_number > 0;
 
         const isLAN = job.repo === "LAN" || job.repo === "UNC";
@@ -998,8 +1025,8 @@ const Backupp = ({ searchQuery = '' }) => {
 
 
                                                 const isCounting = jobToDisplay.status === "counting";
-                                                // FIXED: Use both finished flag and progress >= 100 for completion check
-                                                const isCompleted = jobToDisplay.finished === true || jobToDisplay.progress_number >= 100;
+                                                // FIXED: Use both finished flag and progress >= 100; failed never counts as completed
+                                                const isCompleted = jobToDisplay.status !== "failed" && (jobToDisplay.finished === true || jobToDisplay.progress_number >= 100);
                                                 const isUploading = !isCounting && !isCompleted && jobToDisplay.progress_number > 0;
                                                 const expansionKey = `${agent}-${job.id}`;
                                                 const isExpanded = expandedBackups[expansionKey];

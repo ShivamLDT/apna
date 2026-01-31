@@ -426,11 +426,37 @@ def restoretest():
             (str(rep).upper() == "AZURE") or (str(rep).upper() == "AWSS3") or (str(rep).upper() == "GDRIVE") or  (str(rep).upper() == "LAN") or (str(rep).upper().startswith("LOCAL")) or (str(rep).upper().startswith("ONEDRIVE"))
             ):
             target_file_name = tccn
-            import magic
+            try:
+                import magic  # type: ignore
+            except Exception:
+                magic = None
             from fClient.cktio import cl_socketio_obj
             extracted_data=b''
             file_metada=None
             isMetaFile=extd.get('isMetaFile',False)
+            # GDrive/cloud non-meta: build file_metada from chunk_manifest so chunk-download loop runs (no server metadata fetch)
+            if not isMetaFile and chunk_manifest and (str(rep).upper() in ["GDRIVE", "GOOGLEDRIVE", "AWSS3", "AZURE", "ONEDRIVE"]):
+                expected_total = int(chunk_manifest.get("total_chunks") or 0)
+                chunks_keys = chunk_manifest.get("chunks") or {}
+                file_metada = sorted(chunks_keys.keys(), key=lambda x: int(x)) if chunks_keys else (list(range(1, expected_total + 1)) if expected_total else [])
+                # GDrive: require gidn_list in jsrepd with length matching total_chunks
+                if str(rep).upper() in ["GDRIVE", "GOOGLEDRIVE"]:
+                    gidn_list = jsrepd.get("gidn_list")
+                    if not gidn_list or not isinstance(gidn_list, (list, tuple)):
+                        log_event(logger, logging.ERROR, job_id, "restore", file_path=tccn, file_id=obj, error_code="GDRIVE_MISSING_GIDN_LIST", error_message="gidn_list missing or invalid in backup metadata", extra={"event": "restore_aborted"})
+                        return make_response(jsonify({"restore": "failed", "reason": "GDRIVE_MISSING_GIDN_LIST: gidn_list missing or invalid in backup metadata"}), 500)
+                    if len(gidn_list) != expected_total:
+                        log_event(logger, logging.ERROR, job_id, "restore", file_path=tccn, file_id=obj, error_code="GDRIVE_GIDN_LIST_LENGTH", error_message=f"gidn_list length {len(gidn_list)} != total_chunks {expected_total}", extra={"event": "restore_aborted"})
+                        return make_response(jsonify({"restore": "failed", "reason": f"GDRIVE_GIDN_LIST_LENGTH: gidn_list has {len(gidn_list)} items, expected {expected_total}"}), 500)
+                state_path = f"{tccn}.restore.state.json"
+                completed_chunks = set()
+                if os.path.exists(state_path):
+                    try:
+                        with open(state_path, "r", encoding="utf-8") as state_file:
+                            state_data = json.load(state_file)
+                            completed_chunks = set(state_data.get("completed_chunks", []))
+                    except Exception:
+                        completed_chunks = set()
             if isMetaFile:
                 with requests.post(
                     f"http://{app.config['server_ip']}:{app.config['server_port']}/data/download",
@@ -467,7 +493,7 @@ def restoretest():
                             extra={"event": "restore_resume", "completed_chunks": len(completed_chunks)},
                         )
                 expected_total = int(chunk_manifest.get("total_chunks") or 0)
-                if expected_total and len(file_metada) != expected_total:
+                if expected_total and (file_metada is None or len(file_metada) != expected_total):
                     log_event(
                         logger,
                         logging.ERROR,
@@ -489,6 +515,21 @@ def restoretest():
                         error_code="RESTORE_ABORTED",
                         error_message="Restore aborted due to chunk sequence mismatch",
                         extra={"event": "restore_aborted"},
+                    )
+                    return make_response(jsonify({"restore": "failed", "reason": "CHUNK_SEQUENCE_ERROR"}), 500)
+            if file_metada is not None:
+                expected_total = int(chunk_manifest.get("total_chunks") or 0)
+                if expected_total and len(file_metada) != expected_total:
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        job_id,
+                        "restore",
+                        file_path=tccn,
+                        file_id=obj,
+                        error_code="CHUNK_SEQUENCE_ERROR",
+                        error_message="Metadata chunk count mismatch",
+                        extra={"event": "restore_aborted", "expected": expected_total, "actual": len(file_metada)},
                     )
                     return make_response(jsonify({"restore": "failed", "reason": "CHUNK_SEQUENCE_ERROR"}), 500)
                 ichunkscount=0
@@ -699,22 +740,24 @@ def restoretest():
                             #write res
                             print("")
                             send_response=make_response (
-                                jsonify({"file": jsrepd["original_path"], "restore": "failed", "reason": (str(restore_move))}),
+                                jsonify({"file": jsrepd.get("original_path", tccn), "restore": "failed", "reason": (str(restore_move))}),
                                 500,
                             )
-                            for key, value in res_h1.items():
-                                send_response.headers[key] = value
+                            if res_h1:
+                                for key, value in res_h1.items():
+                                    send_response.headers[key] = value
                             return send_response
 
                     
                 except Exception as dddd:
                     print(str(dddd))
                     send_response=make_response (
-                        jsonify({"file": jsrepd["original_path"], "restore": "failed", "reason": (str(dddd))}),
+                        jsonify({"file": jsrepd.get("original_path", tccn), "restore": "failed", "reason": (str(dddd))}),
                         500,
                     )
-                    for key, value in res_h1.items():
-                        send_response.headers[key] = value
+                    if res_h1:
+                        for key, value in res_h1.items():
+                            send_response.headers[key] = value
                     return send_response
                         
                 if os.path.exists(tempfilecreate):
@@ -785,8 +828,9 @@ def restoretest():
                     pass
                 send_response = make_response(jsonify({"file": tccn, "restore": "success", "reason": ""}), 200)
                 # Add custom headers
-                for key, value in res_h1.items():
-                    send_response.headers[key] = value
+                if res_h1:
+                    for key, value in res_h1.items():
+                        send_response.headers[key] = value
                 log_event(
                     logger,
                     logging.INFO,
@@ -1437,8 +1481,9 @@ def restoretest():
         #     except:
         #         print("not removed")
 
-        send_response = make_response (jsonify({"file": jsrepd["original_path"], "restore": "success", "reason": ""}), 200)
-        for key, value in res_h1.items():
+        send_response = make_response (jsonify({"file": jsrepd.get("original_path", target_file_name or ""), "restore": "success", "reason": ""}), 200)
+        if res_h1:
+            for key, value in res_h1.items():
                 send_response.headers[key] = value
         return send_response
 
@@ -1470,11 +1515,10 @@ def restoretest():
                     os.remove(target_file_name+str(tccnstamp_date)+ ".bakx")
             except:
                 print("Copied")
-            
-            if e.response.status_code == 404:
-                if e.response!=None:
-                #if e.response.reason:
-                    reason="source file not found on fileserver"
+            # Only HTTPError has .response; KeyError/AttributeError etc. do not
+            e_response = getattr(e, "response", None)
+            if e_response is not None and e_response.status_code == 404:
+                reason="source file not found on fileserver"
             response= make_response (
                 jsonify(
                     {
@@ -1483,10 +1527,11 @@ def restoretest():
                         "reason": reason,
                     }
                 ),
-                200,
+                500,
             )
-            for key, value in res_h1.items():
-                response.headers[key] = value
+            if res_h1:
+                for key, value in res_h1.items():
+                    response.headers[key] = value
             return response
         else:
             try:
@@ -1494,9 +1539,10 @@ def restoretest():
             except:
                 print("not removed")
 
-        response= make_response (jsonify({"file": jsrepd.get("original_path",jsrepd.get("path","")), "restore": "failed", "reason": (str(e))}), 200)
-        for key, value in res_h1.items():
-            response.headers[key] = value
+        response= make_response (jsonify({"file": jsrepd.get("original_path", jsrepd.get("path", "")), "restore": "failed", "reason": (str(e))}), 500)
+        if res_h1:
+            for key, value in res_h1.items():
+                response.headers[key] = value
         return response
 
 @app.route("/restoretest2", methods=["POST"])

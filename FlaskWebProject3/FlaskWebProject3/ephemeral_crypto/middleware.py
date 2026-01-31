@@ -900,6 +900,19 @@ class SessionStore:
         async with self._get_connection() as conn:
             await conn.execute('DELETE FROM sessions WHERE key_id = ?', (key_id,))
             await conn.commit()
+
+    async def extend_session(self, key_id, new_expires_at):
+        """
+        Extend session expiration (sliding expiration).
+        Call on each successful decrypt so active users keep their sessions alive.
+        """
+        await self._init_db()
+        async with self._get_connection() as conn:
+            await conn.execute(
+                'UPDATE sessions SET expires_at = ? WHERE key_id = ? AND expires_at > ?',
+                (new_expires_at, key_id, now_ts())
+            )
+            await conn.commit()
     
     async def cleanup_expired(self):
         """
@@ -967,6 +980,10 @@ class SessionStore:
         """
         return self._run_async(self.delete_session(key_id))
     
+    def extend_session_sync(self, key_id, new_expires_at):
+        """Synchronous wrapper for extend_session. Extends session expiration (sliding)."""
+        return self._run_async(self.extend_session(key_id, new_expires_at), timeout=5.0)
+
     def cleanup_expired_sync(self):
         """
         Synchronous wrapper for cleanup_expired.
@@ -1074,6 +1091,12 @@ class CryptoRequest(Request):
                     self._cached_json = None
 
                 self._decrypted_body = plaintext
+                # Sliding expiration: extend session on each successful decrypt so active users stay alive
+                try:
+                    new_expires = now_ts() + SESSION_TTL_SECONDS
+                    session_store.extend_session_sync(key_id, new_expires)
+                except Exception:
+                    pass
 
             except Exception as e:
                 current_app.logger.error(f"Body decryption failed: {e}")
@@ -1143,7 +1166,14 @@ def init_crypto(app, db_path='sessions.db'):
 
     @app.before_request
     def check_crypto_errors():
-        """Check for crypto errors after decryption attempt."""
+        """Trigger decryption for encrypted requests, then check for crypto errors."""
+        # Force decryption before view runs so g.crypto_error is set (avoids 500 from request.json.get on None)
+        key_id = request.headers.get("X-Key-Id")
+        if key_id and request.method == "POST" and request.get_data():
+            try:
+                _ = request.json  # triggers _ensure_decrypted
+            except Exception:
+                pass
         if hasattr(g, 'crypto_error'):
             error = g.crypto_error
             if error == "invalid_or_expired_key":

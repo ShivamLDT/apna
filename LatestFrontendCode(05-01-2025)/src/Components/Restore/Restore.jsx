@@ -243,9 +243,13 @@ const Restore = () => {
     const [inputValue, setInputValue] = useState(
         folderData || selectedRestoreItem?.target_location || ''
     );
+    const [restoreLocationEdited, setRestoreLocationEdited] = useState(false);
 
     // Update value only when props change
     useEffect(() => {
+        if (restoreLocationEdited) {
+            return;
+        }
         let value = '';
 
         if (Array.isArray(folderData)) {
@@ -255,7 +259,10 @@ const Restore = () => {
         }
 
         setInputValue(value);
-    }, [folderData, selectedRestoreItem]);
+    }, [folderData, selectedRestoreItem, restoreLocationEdited]);
+    useEffect(() => {
+        setRestoreLocationEdited(false);
+    }, [selectedRestoreItem]);
 
 
 
@@ -857,7 +864,6 @@ const Restore = () => {
             if (data.length === 0) {
                 setShowRestoreData(true); // keep restore area open so alert can show
                 setResponseData([]);
-                // setPopupTime({ visible: true, message: `No restore data available for ${agentName} between ${formatDate(startOfMonth)} - ${formatDate(endDate)}.` });
                 setAlert({
                     message: `No restore data available for ${agentName} between ${formatDate(startOfMonth)} - ${formatDate(endDate)}.`,
                     type: 'error'
@@ -868,8 +874,18 @@ const Restore = () => {
         } catch (error) {
             console.error("Error posting data:", error);
             setResponseData([]); // Set to empty array on error
-            setShowRestoreData(false); // Keep endpoint table if error
+            setShowRestoreData(true); // Keep restore area open so alert can show
             setLoading(false);
+            const message = error.response?.data?.message
+                || error.response?.data?.error
+                || (typeof error.response?.data === 'string' ? error.response.data : null)
+                || (error.response?.status === 500 ? 'Restore fetch failed: Internal Server Error. Check server logs.' : null)
+                || error.message
+                || 'Failed to load restore data.';
+            setAlert({
+                message,
+                type: 'error'
+            });
         }
     };
 
@@ -927,14 +943,14 @@ const Restore = () => {
             }
 
             // Handle other types
-            if (typeof aValue === "string") {
+            if (sortConfig.key === "lastConnected") {
+                aValue = a.lastConnected === "True" ? 1 : 0;
+                bValue = b.lastConnected === "True" ? 1 : 0;
+            } else if (typeof aValue === "string") {
                 aValue = aValue.toLowerCase();
                 bValue = bValue.toLowerCase();
             } else if (typeof aValue === "number") {
                 // numbers fine
-            } else if (sortConfig.key === "lastConnected") {
-                aValue = a.lastConnected ? 1 : 0;
-                bValue = b.lastConnected ? 1 : 0;
             } else if (sortConfig.key === "data_repo") {
                 aValue = a.data_repo.toLowerCase();
                 bValue = b.data_repo.toLowerCase();
@@ -1174,7 +1190,10 @@ const Restore = () => {
         if (Array.isArray(inputValue) && inputValue.join(' ') !== "C:\\small deta mb") {
             input_val = inputValue.join(' ').replace(/\//g, '\\');
         } else {
-            input_val = inputValue.replace(/\//g, '\\');
+            input_val = (inputValue || '').replace(/\//g, '\\');
+        }
+        if (!input_val) {
+            input_val = selectedRestoreItem?.target_location || '';
         }
 
         const data = endPointAgentName ? endPointAgentName : selectedRestoreItem?.from_computer;
@@ -1511,10 +1530,6 @@ const Restore = () => {
             if (!data || data.length === 0) {
                 setShowRestoreData(true);
                 setShowFilterPopup(false);
-                // setPopupTime({
-                //     visible: true,
-                //     message: `No restore data available for ${selectedAgentForRestore} between ${formatDate(new Date(tempStartDate))} - ${formatDate(new Date(tempEndDate))}.`
-                // });
                 setAlert({
                     message: `No restore data available for ${selectedAgentForRestore} between ${formatDate(new Date(tempStartDate))} - ${formatDate(new Date(tempEndDate))}.`,
                     type: 'error'
@@ -2004,11 +2019,11 @@ const Restore = () => {
                                                     <span
                                                         className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full
                                         ${agent.lastConnected == "True"
-                                                                ? "bg-red-100 text-red-800"
-                                                                : "bg-green-100 text-green-800"
+                                                                ? "bg-green-100 text-green-800"
+                                                                : "bg-red-100 text-red-800"
                                                             }`}
                                                     >
-                                                        {agent.lastConnected == "True" ? "Offline" : "Online"}
+                                                        {agent.lastConnected == "True" ? "Online" : "Offline"}
                                                     </span>
                                                 </td>
 
@@ -2339,7 +2354,10 @@ const Restore = () => {
 
                                             <input type="text"
                                                 value={inputValue}
-                                                onChange={(e) => setInputValue(e.target.value)}
+                                                onChange={(e) => {
+                                                    setInputValue(e.target.value);
+                                                    setRestoreLocationEdited(true);
+                                                }}
                                                 className="restore-popup-model-overlay-location-input" />
                                         </div>
                                     </div>

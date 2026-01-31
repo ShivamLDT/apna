@@ -278,7 +278,7 @@ let aesKey = null;
 let keyId = null;
 let sessionExpiry = null;
 let handshakePromise = null;
-const SESSION_LIFETIME_MS = 10 * 60 * 1000;
+const SESSION_LIFETIME_MS = 60 * 60 * 1000;  // 60 min (matches server SESSION_TTL_SECONDS)
 function isSessionValid() {
   return aesKey && keyId && sessionExpiry && Date.now() < sessionExpiry;
 }
@@ -316,7 +316,7 @@ export async function ensureSession() {
           if (data?.ok) {
             aesKey = saved.aesKey;
             keyId = saved.keyId;
-            sessionExpiry = saved.expiresAt;
+            sessionExpiry = data.ttl != null ? Date.now() + data.ttl * 1000 : saved.expiresAt;
             return;
           } else {
             clearSession();

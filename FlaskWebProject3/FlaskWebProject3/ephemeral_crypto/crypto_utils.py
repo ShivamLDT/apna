@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-SESSION_TTL_SECONDS = 10 * 60
+SESSION_TTL_SECONDS = 60 * 60  # 60 min (was 10 min) - fewer expiry issues for long-running restore flows
 RSA_HANDSHAKE_LIFETIME = 2 * 60
 
 

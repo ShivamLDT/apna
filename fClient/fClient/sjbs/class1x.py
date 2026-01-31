@@ -3105,6 +3105,27 @@ def start_file_streaming(
                                 extra={"event": "chunk_failed"},
                             )
                             logger.warning(f"print full error reason of failed backup /upload {response.json()}")
+                            try:
+                                if cl_socketio_obj.connected:
+                                    cl_socketio_obj.emit(
+                                        "backup_data",
+                                        {
+                                            "backup_jobs": [
+                                                {
+                                                    "cloud": repo,
+                                                    "name": p_NameText,
+                                                    "id": job_Start,
+                                                    "agent": str(str(app.config.get("getCodea", None))),
+                                                    "filename": file_name,
+                                                    "repo": repo,
+                                                    "status": "failed",
+                                                    "progress_number_upload": 100,
+                                                }
+                                            ]
+                                        },
+                                    )
+                            except Exception:
+                                pass
                             raise RuntimeError(
                                 str((response.json())["result"]["status"])
                             )
@@ -3146,6 +3167,27 @@ def start_file_streaming(
                                 extra={"event": "chunk_failed"},
                             )
                             logger.warning(f"print full error reason of failed backup /upload {response.json()}")
+                            try:
+                                if cl_socketio_obj.connected:
+                                    cl_socketio_obj.emit(
+                                        "backup_data",
+                                        {
+                                            "backup_jobs": [
+                                                {
+                                                    "cloud": repo,
+                                                    "name": p_NameText,
+                                                    "id": job_Start,
+                                                    "agent": str(str(app.config.get("getCodea", None))),
+                                                    "filename": file_name,
+                                                    "repo": repo,
+                                                    "status": "failed",
+                                                    "progress_number_upload": 100,
+                                                }
+                                            ]
+                                        },
+                                    )
+                            except Exception:
+                                pass
                             raise RuntimeError(
                                 str((response.json())["result"]["status"])
                             )
