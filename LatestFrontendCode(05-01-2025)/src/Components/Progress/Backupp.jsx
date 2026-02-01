@@ -63,12 +63,14 @@ function decryptData(encryptedData) {
 }
 
 // FIXED: Updated ProgressDoughnutChart to handle both finished flag and progress >= 100
+// Progress bar now shows incremental % during counting and upload (no more 0→100 jump)
 const ProgressDoughnutChart = ({ progress, isFinished = false, isCounting = false, status }) => {
     const isFailed = status === "failed";
     let displayProgress;
 
     if (isCounting) {
-        displayProgress = 0; // Show 0% during counting phase
+        // Use actual progress during counting (e.g. file count or percentage)
+        displayProgress = Math.max(0, Math.min(100, progress || 0));
     } else if (isFailed) {
         displayProgress = 0;    // failed jobs show 0% red
     } else if (isFinished || progress >= 100) {
@@ -383,7 +385,7 @@ const Backupp = ({ searchQuery = '' }) => {
                             const newAgentData = { ...prev };
                             if (!newAgentData[agent]) newAgentData[agent] = [];
 
-                            const existingIndex = newAgentData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAgentData[agent].findIndex(j => String(j.id) === String(job.id));
                             if (existingIndex !== -1) {
                                 newAgentData[agent][existingIndex] = job;
                             } else {
@@ -400,7 +402,7 @@ const Backupp = ({ searchQuery = '' }) => {
                         setAnimatedData(prev => {
                             const newAnimatedData = { ...prev };
                             if (!newAnimatedData[agent]) newAnimatedData[agent] = [];
-                            const existingIndex = newAnimatedData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAnimatedData[agent].findIndex(j => String(j.id) === String(job.id));
                             const displayJob = {
                                 ...job,
                                 progress_number: job.progress_number ?? 0,
@@ -419,15 +421,16 @@ const Backupp = ({ searchQuery = '' }) => {
                             return newAnimatedData;
                         });
 
-                        // Handle file-level updates from "starting" event
+                        // Handle file-level updates from "starting" event (use String(job.id) for key)
                         if (job.filename && !job.cloud) {
                             setJobFiles(prev => {
                                 const newJobFiles = { ...prev };
                                 if (!newJobFiles[agent]) newJobFiles[agent] = {};
-                                if (!newJobFiles[agent][job.id]) newJobFiles[agent][job.id] = [];
+                                const jobKey = String(job.id);
+                                if (!newJobFiles[agent][jobKey]) newJobFiles[agent][jobKey] = [];
 
                                 const fileName = job.filename.split(/[\\/]/).pop();
-                                const existingFileIndex = newJobFiles[agent][job.id].findIndex(f => f.name === fileName);
+                                const existingFileIndex = newJobFiles[agent][jobKey].findIndex(f => f.name === fileName);
 
                                 // KEEP ORIGINAL: File-level logic unchanged
                                 const fileData = {
@@ -440,12 +443,12 @@ const Backupp = ({ searchQuery = '' }) => {
                                 };
 
                                 if (existingFileIndex !== -1) {
-                                    newJobFiles[agent][job.id][existingFileIndex] = {
-                                        ...newJobFiles[agent][job.id][existingFileIndex],
+                                    newJobFiles[agent][jobKey][existingFileIndex] = {
+                                        ...newJobFiles[agent][jobKey][existingFileIndex],
                                         ...fileData
                                     };
                                 } else {
-                                    newJobFiles[agent][job.id].push(fileData);
+                                    newJobFiles[agent][jobKey].push(fileData);
                                 }
                                 return newJobFiles;
                             });
@@ -480,7 +483,7 @@ const Backupp = ({ searchQuery = '' }) => {
                             const newAgentData = { ...prev };
                             if (!newAgentData[agent]) newAgentData[agent] = [];
 
-                            const existingIndex = newAgentData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAgentData[agent].findIndex(j => String(j.id) === String(job.id));
                             if (existingIndex !== -1) {
                                 newAgentData[agent][existingIndex] = job;
                             } else {
@@ -498,14 +501,15 @@ const Backupp = ({ searchQuery = '' }) => {
                             const newAnimatedData = { ...prev };
                             if (!newAnimatedData[agent]) newAnimatedData[agent] = [];
 
-                            const existingIndex = newAnimatedData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAnimatedData[agent].findIndex(j => String(j.id) === String(job.id));
                             const previousJob = existingIndex !== -1 ? newAnimatedData[agent][existingIndex] : null;
 
                             // 🔥 FIX: Define isFileLevel before using it
                             const isOverallLevel = job.progress_number !== undefined && !job.progress_number_file && !job.progress_number_upload;
                             const isFileLevel = job.progress_number_file !== undefined;
                             const isCloudLevel = job.progress_number_upload !== undefined;
-
+                            // Use progress_number when provided (incl. file-level updates) for incremental bar
+                            const hasOverallProgress = job.progress_number !== undefined && !isNaN(parseFloat(job.progress_number));
 
                             const isJobCompleted =
                                 !isFileLevel &&
@@ -538,10 +542,12 @@ const Backupp = ({ searchQuery = '' }) => {
 
                                 progress_number_original: job.progress_number,
 
-                                // Legacy usage but safe
-                                progress_number: isOverallLevel
-                                    ? Math.max(0, Math.min(100, job.progress_number || 0))
-                                    : previousJob?.progress_number || 0,
+                                // Use progress_number when provided for incremental bar; else keep previous
+                                progress_number: hasOverallProgress
+                                    ? Math.max(0, Math.min(100, parseFloat(job.progress_number)))
+                                    : (isOverallLevel
+                                        ? Math.max(0, Math.min(100, job.progress_number || 0))
+                                        : previousJob?.progress_number || 0),
 
                                 progress_number_file: isFileLevel
                                     ? Math.max(0, Math.min(100, job.progress_number_file || 0))
@@ -614,15 +620,16 @@ const Backupp = ({ searchQuery = '' }) => {
 
 
 
-                        // Handle file-level updates only when filename is present
+                        // Handle file-level updates only when filename is present (use String(job.id) for key)
                         if (job.filename && !job.cloud) {
                             setJobFiles(prev => {
                                 const newJobFiles = { ...prev };
                                 if (!newJobFiles[agent]) newJobFiles[agent] = {};
-                                if (!newJobFiles[agent][job.id]) newJobFiles[agent][job.id] = [];
+                                const jobKey = String(job.id);
+                                if (!newJobFiles[agent][jobKey]) newJobFiles[agent][jobKey] = [];
 
                                 const fileName = job.filename.split(/[\\/]/).pop();
-                                const existingFileIndex = newJobFiles[agent][job.id].findIndex(f => f.name === fileName);
+                                const existingFileIndex = newJobFiles[agent][jobKey].findIndex(f => f.name === fileName);
 
                                 // KEEP ORIGINAL: File-level logic unchanged
                                 const fileData = {
@@ -635,12 +642,12 @@ const Backupp = ({ searchQuery = '' }) => {
                                 };
 
                                 if (existingFileIndex !== -1) {
-                                    newJobFiles[agent][job.id][existingFileIndex] = {
-                                        ...newJobFiles[agent][job.id][existingFileIndex],
+                                    newJobFiles[agent][jobKey][existingFileIndex] = {
+                                        ...newJobFiles[agent][jobKey][existingFileIndex],
                                         ...fileData
                                     };
                                 } else {
-                                    newJobFiles[agent][job.id].push(fileData);
+                                    newJobFiles[agent][jobKey].push(fileData);
                                 }
 
                                 localStorage.setItem("storedJobFiles", encryptData(JSON.stringify(newJobFiles)));
@@ -732,14 +739,16 @@ const Backupp = ({ searchQuery = '' }) => {
         }
     };
 
-    // Check if job has files
+    // Check if job has files (use String(jobId) so 123 and "123" match)
     const hasFiles = (agent, jobId) => {
-        return jobFiles[agent] && jobFiles[agent][jobId] && jobFiles[agent][jobId].length > 0;
+        const key = String(jobId);
+        return jobFiles[agent] && jobFiles[agent][key] && jobFiles[agent][key].length > 0;
     };
 
     // Get files for a job with proper sorting
     const getJobFiles = (agent, jobId) => {
-        const files = (jobFiles[agent] && jobFiles[agent][jobId]) || [];
+        const key = String(jobId);
+        const files = (jobFiles[agent] && jobFiles[agent][key]) || [];
 
         return files.sort((a, b) => {
             const statusOrder = { uploading: 0, pending: 1, failed: 2, completed: 3 };
@@ -1017,17 +1026,15 @@ const Backupp = ({ searchQuery = '' }) => {
                                     <div className="overflow-auto bgMaxH">
                                         {mainJobs.length > 0 ? (
                                             mainJobs.map((job) => {
-                                                // Use animatedData for display with fallback to original job
-                                                // const jobToDisplay = animatedData[agent]?.find(aJob => aJob.id === job.id) || job;
+                                                // Use animatedData for display with fallback to original job (match id as string so 123 === "123")
                                                 const jobToDisplay =
-                                                    animatedData[agent]?.find(aJob => aJob.id === job.id)
+                                                    animatedData[agent]?.find(aJob => String(aJob.id) === String(job.id))
                                                     || job;
 
 
                                                 const isCounting = jobToDisplay.status === "counting";
                                                 // FIXED: Use both finished flag and progress >= 100; failed never counts as completed
                                                 const isCompleted = jobToDisplay.status !== "failed" && (jobToDisplay.finished === true || jobToDisplay.progress_number >= 100);
-                                                const isUploading = !isCounting && !isCompleted && jobToDisplay.progress_number > 0;
                                                 const expansionKey = `${agent}-${job.id}`;
                                                 const isExpanded = expandedBackups[expansionKey];
                                                 const jobHasFiles = hasFiles(agent, job.id);
@@ -1035,13 +1042,21 @@ const Backupp = ({ searchQuery = '' }) => {
                                                 // FIXED: Display logic for progress text - show 100% if completed
                                                 const isFailed = jobToDisplay.status === "failed";
 
+                                                // Use SAME value as status column: prefer file list (source of status %) then raw job (same payload as file list)
+                                                const files = jobHasFiles ? getJobFiles(agent, job.id) : [];
+                                                const maxFileProgress = files.length > 0 ? Math.max(...files.map(f => Number(f.progress ?? 0))) : 0;
+                                                const jobProgress = Number(jobToDisplay?.progress_number ?? job?.progress_number ?? 0);
+                                                const fileLevelProgress = Number(jobToDisplay?.progress_number_file ?? job?.progress_number_file ?? 0);
+                                                const statusProgressValue = Math.max(maxFileProgress, fileLevelProgress, jobProgress);
+
                                                 const displayProgress =
                                                     isFailed
                                                         ? 0
                                                         : isCompleted
                                                             ? 100
-                                                            : Math.max(0, Math.min(100, jobToDisplay.progress_number || 0));
+                                                            : Math.max(0, Math.min(100, statusProgressValue));
 
+                                                const isUploading = !isCounting && !isCompleted && displayProgress > 0;
 
                                                 return (
                                                     <div key={job.id} className="border border-gray-200 overflow-hidden">

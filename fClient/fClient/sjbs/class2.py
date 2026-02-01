@@ -1628,27 +1628,36 @@ def uploaded_part_file_handler(sender, file_path,metadata,per, **kwargs):
     # task_q.put(backup_status)
     # task_q.put(None)
     # broadcast_ws_message(cl,task_queue=task_q,kill=False,msg_type_param="backup_data")
-    if kwargs.get('file_id',None):
+    if kwargs.get('file_id', None):
+        job_kwargs = kwargs.get('job_kwargs', {})
+        thiscurrentfile = float(job_kwargs.get('currentfile', 1)) - 1
+        if thiscurrentfile < 0:
+            thiscurrentfile = 0
+        totalfiles = float(job_kwargs.get('totalfiles', 1))
+        if totalfiles <= 0:
+            totalfiles = 1
+        progress_number = float(100 * (float(per / 100) + float(thiscurrentfile))) / totalfiles
         backup_status = {
             "backup_jobs": [
                 {
-                    "status": "counting",
-                    "paused": False,    
+                    "status": "progress",
+                    "paused": False,
                     "name": kwargs['file_id']['backup_jobs'][0]['name'],
                     "agent": kwargs['file_id']['backup_jobs'][0]['agent'],
                     "scheduled_time": kwargs['file_id']['backup_jobs'][0]['scheduled_time'],
-                    "progress_number_file":per, 
-                    "accuracy":per,
-                    "finished":False, 
+                    "progress_number": progress_number,
+                    "progress_number_file": per,
+                    "accuracy": per,
+                    "finished": False,
                     "id": kwargs['file_id']['backup_jobs'][0]['id'],
                     "filename": file_path,
+                    "totalfiles": int(totalfiles),
                 }
             ]
         }
-
-    task_q.put(backup_status)
-    task_q.put(None)
-    broadcast_ws_message(cl,task_queue=task_q,kill=False,msg_type_param="starting")
+        task_q.put(backup_status)
+        task_q.put(None)
+        broadcast_ws_message(cl, task_queue=task_q, kill=False, msg_type_param="backup_data")
 
 
 def uploaded_handler_part(sender, file_path,metadata,per, **kwargs):

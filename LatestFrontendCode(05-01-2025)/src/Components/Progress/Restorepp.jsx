@@ -250,15 +250,16 @@ const Restorepp = ({ searchQuery = '' }) => {
                             return newAgentData;
                         });
 
-                        // Update jobFiles for individual files being restored
+                        // Update jobFiles for individual files being restored (use String(job.id) for key)
                         setJobFiles(prev => {
                             const newJobFiles = { ...prev };
                             if (!newJobFiles[agent]) newJobFiles[agent] = {};
-                            if (!newJobFiles[agent][job.id]) newJobFiles[agent][job.id] = [];
+                            const jobKey = String(job.id);
+                            if (!newJobFiles[agent][jobKey]) newJobFiles[agent][jobKey] = [];
 
                             if (job.status === "counting" && job.filename) {
                                 const fileName = job.filename.split(/[\\/]/).pop();
-                                const existingFileIndex = newJobFiles[agent][job.id].findIndex(f => f.name === fileName);
+                                const existingFileIndex = newJobFiles[agent][jobKey].findIndex(f => f.name === fileName);
 
                                 const fileData = {
                                     name: fileName,
@@ -271,12 +272,12 @@ const Restorepp = ({ searchQuery = '' }) => {
                                 };
 
                                 if (existingFileIndex !== -1) {
-                                    newJobFiles[agent][job.id][existingFileIndex] = {
-                                        ...newJobFiles[agent][job.id][existingFileIndex],
+                                    newJobFiles[agent][jobKey][existingFileIndex] = {
+                                        ...newJobFiles[agent][jobKey][existingFileIndex],
                                         ...fileData
                                     };
                                 } else {
-                                    newJobFiles[agent][job.id].push(fileData);
+                                    newJobFiles[agent][jobKey].push(fileData);
                                 }
                             }
                             return newJobFiles;
@@ -391,15 +392,16 @@ const Restorepp = ({ searchQuery = '' }) => {
                             showToast(`${job?.name} Failed on ${job?.agent} at ${job?.restore_location}`, "error");
                         }
 
-                        // Update jobFiles when 'filename' is present (individual file updates)
+                        // Update jobFiles when 'filename' is present (use String(job.id) for key)
                         setJobFiles(prev => {
                             const newJobFiles = { ...prev };
                             if (!newJobFiles[agent]) newJobFiles[agent] = {};
-                            if (!newJobFiles[agent][job.id]) newJobFiles[agent][job.id] = [];
+                            const jobKey = String(job.id);
+                            if (!newJobFiles[agent][jobKey]) newJobFiles[agent][jobKey] = [];
 
                             if (job.status === "counting" && job.filename) {
                                 const fileName = job.filename.split(/[\\/]/).pop();
-                                const existingFileIndex = newJobFiles[agent][job.id].findIndex(f => f.name === fileName);
+                                const existingFileIndex = newJobFiles[agent][jobKey].findIndex(f => f.name === fileName);
 
                                 const fileData = {
                                     name: fileName,
@@ -412,12 +414,12 @@ const Restorepp = ({ searchQuery = '' }) => {
                                 };
 
                                 if (existingFileIndex !== -1) {
-                                    newJobFiles[agent][job.id][existingFileIndex] = {
-                                        ...newJobFiles[agent][job.id][existingFileIndex],
+                                    newJobFiles[agent][jobKey][existingFileIndex] = {
+                                        ...newJobFiles[agent][jobKey][existingFileIndex],
                                         ...fileData
                                     };
                                 } else {
-                                    newJobFiles[agent][job.id].push(fileData);
+                                    newJobFiles[agent][jobKey].push(fileData);
                                 }
                             }
                             localStorage.setItem("storedRestoreJobFiles", encryptData(JSON.stringify(newJobFiles)));
@@ -484,15 +486,16 @@ const Restorepp = ({ searchQuery = '' }) => {
 
 
     const hasFiles = (agent, jobId) => {
-        // Standardize the lookup key to a string
+        const key = String(jobId);
         const agentFiles = jobFiles[agent] || {};
-        const files = agentFiles[jobId] || agentFiles[String(jobId)];
+        const files = agentFiles[key];
         return files && files.length > 0;
     };
 
     const getJobFiles = (agent, jobId) => {
+        const key = String(jobId);
         const agentFiles = jobFiles[agent] || {};
-        const files = agentFiles[jobId] || agentFiles[String(jobId)] || [];
+        const files = agentFiles[key] || [];
         return files.sort((a, b) => a.progress - b.progress);
     };
 
@@ -642,7 +645,7 @@ const Restorepp = ({ searchQuery = '' }) => {
                                     {restoreJobs.length > 0 ? (
                                         restoreJobs.map((job) => {
                                             // Use animatedData for job-level progress display
-                                            const jobToDisplay = animatedData[agent]?.find(aJob => aJob.id === job.id) || job;
+                                            const jobToDisplay = animatedData[agent]?.find(aJob => String(aJob.id) === String(job.id)) || job;
                                             const effectiveJobProgress = Number(jobToDisplay.progress_number ?? 0);
                                             const isFileLevel = jobToDisplay.status === "counting" && !!jobToDisplay.filename;
 
@@ -671,16 +674,15 @@ const Restorepp = ({ searchQuery = '' }) => {
                                                     );
                                                 }
                                             } else {
-                                                // UNC/chunk-level: when we have file-level updates (counting + files),
-                                                // use file progress so the doughnut moves in real time like the status column
-                                                if (jobToDisplay.status === 'counting' && jobHasFiles) {
+                                                // Use SAME value as status column: prefer file list, then raw job (same payload as file list)
+                                                if (jobHasFiles) {
                                                     const files = getJobFiles(agent, job.id);
-                                                    const maxFileProgress = files.length > 0
+                                                    const statusProgressValue = files.length > 0
                                                         ? Math.max(...files.map(f => Number(f.progress ?? 0)))
-                                                        : 0;
-                                                    displayProgressValue = Math.max(0, Math.min(100, maxFileProgress));
+                                                        : (jobToDisplay?.progress_number_file ?? job?.progress_number_file ?? jobToDisplay?.progress_number ?? job?.progress_number ?? 0);
+                                                    displayProgressValue = Math.max(0, Math.min(100, statusProgressValue));
                                                 } else {
-                                                    displayProgressValue = Math.max(0, Math.min(100, Number(jobToDisplay.progress_number ?? 0)));
+                                                    displayProgressValue = Math.max(0, Math.min(100, Number(jobToDisplay?.progress_number_file ?? job?.progress_number_file ?? jobToDisplay?.progress_number ?? job?.progress_number ?? 0)));
                                                 }
                                             }
 
