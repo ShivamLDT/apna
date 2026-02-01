@@ -11,12 +11,23 @@ from smb.SMBConnection import SMBConnection
 import argparse
 import sys
 
+# Import unified UNC logger
+from fClient.unc.unc_logger import (
+    log_connection_attempt, log_connection_result, log_path_normalization,
+    log_browse_start, log_browse_result, log_transfer_start, log_transfer_complete,
+    log_share_list, log_error, log_debug, log_info, mask_credentials
+)
+
 # ============================================================================
 # UNC Path Normalization Utilities
 # ============================================================================
+# Raw strings avoid \U being interpreted as Unicode escape; cannot end r"..." with \"
+_PREFIX_LONG_UNC = r"\\?\UNC" + "\\"
+_PREFIX_LONG = r"\\?" + "\\"
+
 
 def normalize_unc_path(path):
-    """
+    r"""
     Normalize UNC paths to ensure consistent formatting.
     Handles:
     - Stripping/adding leading backslashes correctly
@@ -30,10 +41,10 @@ def normalize_unc_path(path):
     path = path.replace("/", "\\")
     
     # Remove any existing long path prefix for normalization
-    if path.startswith("\\\\?\\UNC\\"):
-        path = "\\\\" + path[8:]  # Remove \\?\UNC\ and add \\
-    elif path.startswith("\\\\?\\"):
-        path = path[4:]  # Remove \\?\ prefix
+    if path.startswith(_PREFIX_LONG_UNC):
+        path = "\\\\" + path[len(_PREFIX_LONG_UNC):]
+    elif path.startswith(_PREFIX_LONG):
+        path = path[len(_PREFIX_LONG):]
     
     # Strip leading/trailing whitespace
     path = path.strip()
@@ -47,15 +58,15 @@ def normalize_unc_path(path):
         path = "\\" + path
     
     # Apply long path prefix if needed (Windows MAX_PATH is 260)
-    if len(path) > 259 and path.startswith("\\\\") and not path.startswith("\\\\?\\"):
+    if len(path) > 259 and path.startswith("\\\\") and not path.startswith(_PREFIX_LONG_UNC):
         # Convert \\server\share to \\?\UNC\server\share
-        path = "\\\\?\\UNC\\" + path[2:]
+        path = _PREFIX_LONG_UNC + path[2:]
     
     return path
 
 
 def parse_unc_components(unc_path):
-    """
+    r"""
     Parse a UNC path into host and share components.
     Returns (host, share_path) tuple.
     Handles various input formats:
@@ -69,9 +80,9 @@ def parse_unc_components(unc_path):
     
     path = normalize_unc_path(unc_path)
     
-    # Handle long path prefix
-    if path.startswith("\\\\?\\UNC\\"):
-        path = "\\\\" + path[8:]
+    # Handle long path prefix (use same constant as normalize_unc_path)
+    if path.startswith(_PREFIX_LONG_UNC):
+        path = "\\\\" + path[len(_PREFIX_LONG_UNC):]
     
     # Remove UNC prefix for parsing
     if path.startswith("\\\\"):
@@ -151,39 +162,40 @@ class NetworkShare:
         Uses NTLMv2 authentication and direct TCP (port 445).
         Returns True on success, False on failure.
         """
+        start_time = time.time()
+        log_connection_attempt(self.ip_hostname, self.username, self.SMB_PORT, "SMB3")
+        
         try:
-            # Create SMB connection with SMB2/SMB3 support
-            # use_ntlm_v2=True enables NTLMv2 which is required for SMB3
-            # is_direct_tcp=True uses port 445 (SMB direct) instead of NetBIOS
             self._smb_conn = SMBConnection(
                 self.username,
                 self.password,
-                "CLIENT",  # Local machine name (can be any string)
+                "CLIENT",
                 self.ip_hostname,
                 use_ntlm_v2=True,
                 is_direct_tcp=True
             )
             
             connected = self._smb_conn.connect(self.ip_hostname, self.SMB_PORT, timeout=10)
+            duration_ms = (time.time() - start_time) * 1000
             
             if connected:
-                print(f"[+] SMB connected to {self.ip_hostname}:{self.SMB_PORT} as {self.username}")
+                log_connection_result(self.ip_hostname, True, duration_ms=duration_ms)
                 
-                # Optionally verify by listing shares
                 try:
                     shares = self._smb_conn.listShares()
                     share_names = [s.name for s in shares if not s.isSpecial]
-                    print(f"[+] Available shares: {share_names}")
+                    log_share_list(self.ip_hostname, share_names)
                 except Exception as e:
-                    print(f"[!] Could not list shares: {e}")
+                    log_error("list_shares", e, context=self.ip_hostname)
                 
                 return True
             else:
-                print(f"[!] SMB connection failed to {self.ip_hostname}")
+                log_connection_result(self.ip_hostname, False, error="Connection returned False", duration_ms=duration_ms)
                 return False
                 
         except Exception as e:
-            print(f"[ERROR] SMB connection test failed: {e}")
+            duration_ms = (time.time() - start_time) * 1000
+            log_connection_result(self.ip_hostname, False, error=e, duration_ms=duration_ms)
             return False
 
     def disconnect_smb(self):
@@ -192,9 +204,9 @@ class NetworkShare:
             if self._smb_conn:
                 self._smb_conn.close()
                 self._smb_conn = None
-                print("[+] SMB connection closed.")
+                log_debug(f"SMB connection closed | host={self.ip_hostname}")
         except Exception as e:
-            print(f"[!] Error closing SMB connection: {e}")
+            log_error("disconnect_smb", e, context=self.ip_hostname)
 
     def connect(self):
         """
@@ -205,21 +217,22 @@ class NetworkShare:
         net_resource.lpRemoteName = self.share_full_name
         flags = 0
 
-        print(f"Trying to create connection to: {self.share_full_name}")
-
-        # Disconnect any existing connection first
+        log_connection_attempt(self.ip_hostname, self.username, protocol="WNet")
+        start_time = time.time()
+        
         self.disconnect()
 
         try:
             win32wnet.WNetAddConnection2(
                 net_resource, self.password, self.username, flags
             )
+            duration_ms = (time.time() - start_time) * 1000
+            log_connection_result(self.ip_hostname, True, duration_ms=duration_ms)
+            return True
         except pywintypes.error as e:
-            print("Failed to connect:", e)
+            duration_ms = (time.time() - start_time) * 1000
+            log_connection_result(self.ip_hostname, False, error=e, duration_ms=duration_ms)
             return False
-
-        print("Success!")
-        return True
 
     def disconnect(self):
         """Disconnect Windows network connection."""
@@ -232,20 +245,32 @@ class NetworkShare:
 
     def copy_files(self, source_dir, target_dir_name):
         target_dir = os.path.join(self.share_full_name, target_dir_name)
+        
+        # Get source size for throughput calculation
+        source_size = sum(
+            os.path.getsize(os.path.join(dp, f)) 
+            for dp, _, fn in os.walk(source_dir) for f in fn
+        ) if os.path.exists(source_dir) else 0
+        
+        log_transfer_start("copy", source_dir, target_dir, source_size)
         t1 = time.time()
 
         try:
             copytree(source_dir, target_dir, dirs_exist_ok=True)
+            duration = time.time() - t1
+            log_transfer_complete("copy", target_dir, source_size, duration)
         except Exception as e:
-            print("Error copying files:", e)
-            return
-
-        print(f"Files copied in {time.time() - t1:.2f} seconds")
+            duration = time.time() - t1
+            log_transfer_complete("copy", target_dir, source_size, duration, error=e)
 
     def print_file_paths(self):
+        log_browse_start(self.ip_hostname, self.share_full_name, "list_files")
+        file_count = 0
         for root, dirs, files in os.walk(self.share_full_name):
             for file in files:
-                print(os.path.join(root, file))
+                log_debug(os.path.join(root, file))
+                file_count += 1
+        log_browse_result(self.ip_hostname, self.share_full_name, file_count)
 
     def create_file_paths_json(self, output_file, folderonly=False, level=2):
         """
@@ -256,23 +281,24 @@ class NetworkShare:
 
         file_data = []
         file_paths = []
+        mode = "folders" if folderonly else "files"
+        log_browse_start(self.ip_hostname, self.share_full_name, f"json_{mode}")
         
         try:
-            # Normalize the share path for os.walk
             walk_path = normalize_unc_path(self.share_full_name)
+            log_path_normalization(self.share_full_name, walk_path)
             
             for r, fo, f in os.walk(walk_path):
                 if folderonly:
                     for item in fo:
                         try:
-                            # Build proper UNC path avoiding double backslashes
                             item_path = os.path.join(r, item)
                             item_path = normalize_unc_path(item_path)
                             file_paths.append(
                                 self.get_file_metadata(item_path, item)
                             )
                         except Exception as de:
-                            print(f"[!] Error processing folder {item}: {de}")
+                            log_error("process_folder", de, context=item)
                 else:
                     for item in f:
                         try:
@@ -282,7 +308,7 @@ class NetworkShare:
                                 self.get_file_metadata(item_path, item)
                             )
                         except Exception as dw:
-                            print(f"[!] Error processing file {item}: {dw}")
+                            log_error("process_file", dw, context=item)
                 break  # Only process first level
 
             file_data.append({"path": self.share_name, "contents": file_paths})
@@ -290,11 +316,11 @@ class NetworkShare:
             with open(output_file, "w") as json_file:
                 json.dump(file_data, json_file, indent=4)
 
-            print(f"[+] File paths saved to {output_file}")
+            log_browse_result(self.ip_hostname, self.share_full_name, len(file_paths))
             return jsonify(paths=file_data)
             
         except Exception as e:
-            print(f"[ERROR] Error creating file paths JSON: {e}")
+            log_browse_result(self.ip_hostname, self.share_full_name, error=e)
             return jsonify(paths=[], error=str(e))
 
     def get_shared_list(self):
@@ -302,36 +328,36 @@ class NetworkShare:
         List available SMB shares using SMB3-compatible connection.
         Returns JSON response with share metadata.
         """
+        log_browse_start(self.ip_hostname, "", "share_list")
+        
         try:
-            # Use SMB connection with SMB3 support
             conn = SMBConnection(
                 self.username,
                 self.password,
                 "CLIENT",
                 self.ip_hostname,
-                use_ntlm_v2=True,  # Required for SMB3
-                is_direct_tcp=True,  # Port 445 direct TCP
+                use_ntlm_v2=True,
+                is_direct_tcp=True,
             )
             conn.connect(self.ip_hostname, self.SMB_PORT, timeout=10)
             
             file_paths = []
             for share in conn.listShares():
                 if not share.isSpecial and not share.isTemporary:
-                    # Build proper UNC path for this share
                     share_unc = build_unc_path(self.ip_hostname, share.name)
                     try:
                         metadata = self.get_file_metadata(share_unc, share.name)
                         file_paths.append({"path": share.name, "contents": metadata})
                     except Exception as e:
-                        print(f"[!] Error getting metadata for share {share.name}: {e}")
+                        log_error("get_share_metadata", e, context=share.name)
                         file_paths.append({"path": share.name, "contents": str(e)})
             
-            print(f"[+] Listed {len(file_paths)} shares from {self.ip_hostname}")
+            log_share_list(self.ip_hostname, file_paths)
             conn.close()
             return jsonify(paths=file_paths)
             
         except Exception as e:
-            print(f"[ERROR] get_shared_list failed: {e}")
+            log_share_list(self.ip_hostname, [], error=e)
             return jsonify(paths=[], error=str(e))
 
 
@@ -344,8 +370,9 @@ class NetworkShare:
             import mimetypes
             import datetime
 
-            # Normalize the UNC path for reliable access
             normalized_path = normalize_unc_path(file_path)
+            if file_path != normalized_path:
+                log_path_normalization(file_path, normalized_path)
             
             stat_info = os.stat(normalized_path)
             mime_type, _ = mimetypes.guess_type(normalized_path)
@@ -355,11 +382,9 @@ class NetworkShare:
             file_name = os.path.basename(normalized_path)
             is_file = os.path.isfile(normalized_path)
             
-            # Build the path for response using proper UNC formatting
             if is_file:
                 response_path = normalized_path
             else:
-                # For directories, use share_name\name format
                 response_path = build_unc_path(self.ip_hostname, 
                     f"{self.share_name}\\{name}" if self.share_name else name)
 
@@ -376,7 +401,7 @@ class NetworkShare:
             }
             return metadata
         except Exception as e:
-            print(f"[!] Error getting metadata for {file_path}: {e}")
+            log_error("get_file_metadata", e, context=file_path)
             return {"error": str(e), "name": name, "path": file_path}
 
 

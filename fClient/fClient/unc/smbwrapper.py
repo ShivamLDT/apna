@@ -1,5 +1,5 @@
 
-from random import random
+import random
 import time
 import threading
 import smbprotocol
@@ -42,6 +42,23 @@ import smbprotocol
 from sqlalchemy.orm import remote
 
 import module23
+
+# Import UNC logger for unified logging
+try:
+    from fClient.unc.unc_logger import (
+        log_connection_attempt,
+        log_connection_result,
+        log_error as unc_log_error,
+        log_info as unc_log_info,
+        log_debug as unc_log_debug,
+    )
+except ImportError:
+    # Fallback if unc_logger not available
+    def log_connection_attempt(*args, **kwargs): pass
+    def log_connection_result(*args, **kwargs): pass
+    def unc_log_error(*args, **kwargs): pass
+    def unc_log_info(*args, **kwargs): pass
+    def unc_log_debug(*args, **kwargs): pass
 
 
 # Compatibility Exceptions
@@ -442,6 +459,9 @@ class SMBConnection:
             pass
 
     def connect(self, server_ip, port=445, timeout=200):
+        import time as conn_time
+        start_time = conn_time.time()
+        log_connection_attempt(server_ip, self.username, port, "SMB3")
         try:
             logger.info("Connecting to %s:%d", server_ip, port)
             self.conn = Connection(guid=self.uuid, server_name=server_ip, port=port)
@@ -452,19 +472,24 @@ class SMBConnection:
             )
             self.session.connect()
 
+            duration_ms = (conn_time.time() - start_time) * 1000
             logger.info("Connection and session established successfully")
+            log_connection_result(server_ip, True, duration_ms=duration_ms)
             return True
         except SocketTimeout as e:
+            duration_ms = (conn_time.time() - start_time) * 1000
             logger.error("SocketTimeout: %s", str(e))
+            log_connection_result(server_ip, False, error=f"Timeout: {e}", duration_ms=duration_ms)
             raise SMBTimeout("Connection timed out") from e
-        # except NotConnected as e:
-        #     logger.error("NotConnected: %s", str(e))
-        #     raise NotReadyError("Not connected") from e
         except SMBException as e:
+            duration_ms = (conn_time.time() - start_time) * 1000
             logger.error("SMBException: %s", str(e))
+            log_connection_result(server_ip, False, error=f"SMBException: {e}", duration_ms=duration_ms)
             raise OperationFailure(f"SMB connect failed: {e}") from e
         except Exception as e:
+            duration_ms = (conn_time.time() - start_time) * 1000
             logger.exception("Unexpected error during connection")
+            log_connection_result(server_ip, False, error=f"Unexpected: {e}", duration_ms=duration_ms)
             raise
 
     def connectTree(self, share_name):
@@ -792,10 +817,11 @@ class SMBConnection:
             raise Exception(f"Failed to store file '{local_path}': {e}") from e
 
     def storeFile(self, share_name, path, file_obj):
+        import time as store_time
+        start_time = store_time.time()
+        unc_log_info(f"SMB_STORE_START | share={share_name} | path={path}")
+        
         try:
-            # if not self.tree:
-            #    self.connectTree(share_name)
-
             self.ensure_connected(share_name)
 
             file = Open(self.tree, path)
@@ -810,19 +836,20 @@ class SMBConnection:
             )
 
             offset = 0
-            # try:
-            #     self.session.connection.max_read_size = 256 * 1024 * 1024
-            #     chunk_size = max(8 * 1024 * 1024, self.session.connection.max_read_size or 4 * 1024 * 1024)
-            # except:
-            #     chunk_size = min(16 * 1024 * 1024, self.session.connection.max_read_size or 4 * 1024 * 1024)
-            
-            try:
-                self.session.connection.max_write_size = 256 * 1024 * 1024
-                chunk_size = max(8 * 1024 * 1024, self.session.connection.max_write_size or 4 * 1024 * 1024)
-            except:
-                chunk_size = min(16 * 1024 * 1024, self.session.connection.max_write_size or 4 * 1024 * 1024)
+            # Adaptive chunk size based on connection type:
+            # - Localhost (127.0.0.1): Use smaller chunks to avoid credit exhaustion
+            # - LAN/Remote: Use larger chunks for better throughput (fewer round trips)
+            is_localhost = self.ip in ("127.0.0.1", "localhost", "::1")
+            if is_localhost:
+                chunk_size = 4 * 1024 * 1024  # 4 MB for local Windows SMB
+                unc_log_debug(f"Using 4MB chunks for localhost connection")
+            else:
+                # For LAN/remote, use larger chunks (16 MB) - more efficient over network
+                chunk_size = 16 * 1024 * 1024  # 16 MB for network transfers
+                unc_log_debug(f"Using 16MB chunks for network connection to {self.ip}")
 
             file_obj.seek(0)
+            bytes_written = 0
 
             while True:
                 chunk = file_obj.read(chunk_size)
@@ -834,34 +861,33 @@ class SMBConnection:
                     try:
                         file.write(chunk, offset=offset)
                         offset += len(chunk)
+                        bytes_written += len(chunk)
                         break
                     except SMBException as e:
-                        # if "credits" in str(e).lower():
-                        #     logger.warning("Throttled by NAS. Retrying after pause.")
-                        #     time.sleep(2)
-                        #     retries -= 1
-                        if "credit" in str(
-                            e
-                        ).lower() or "STATUS_INSUFFICIENT_RESOURCES" in str(e):
+                        if "credit" in str(e).lower() or "STATUS_INSUFFICIENT_RESOURCES" in str(e):
                             backoff = 2 + random.uniform(0, 2)
-                            logger.warning(
-                                "SMB throttled. Waiting %.1fs before retrying...",
-                                backoff,
-                            )
+                            logger.warning("SMB throttled. Waiting %.1fs before retrying...", backoff)
+                            unc_log_info(f"SMB_THROTTLE | path={path} | backoff={backoff:.1f}s")
                             time.sleep(backoff)
+                            retries -= 1
                         else:
-                            logger.error(
-                                "Write failed at offset %d: %s", offset, str(e)
-                            )
+                            logger.error("Write failed at offset %d: %s", offset, str(e))
+                            unc_log_error("smb_write", e, context=f"path={path} offset={offset}")
                             raise
 
             file.close()
+            duration = store_time.time() - start_time
             logger.info("File stored successfully: %s", path)
-        except AccessDenied:
+            unc_log_info(f"SMB_STORE_SUCCESS | path={path} | bytes={bytes_written} | duration={duration:.2f}s")
+        except AccessDenied as e:
+            duration = store_time.time() - start_time
             logger.error("Access denied to write: %s", path)
+            unc_log_error("smb_store_access_denied", e, context=f"path={path} duration={duration:.2f}s")
             raise OperationFailure(f"Access denied to write: {path}")
         except SMBException as e:
+            duration = store_time.time() - start_time
             logger.error("Failed to store file '%s': %s", path, str(e))
+            unc_log_error("smb_store", e, context=f"path={path} duration={duration:.2f}s")
             raise Exception(f"Failed to store file '{path}': {e}") from e
 
 

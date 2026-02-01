@@ -1569,6 +1569,42 @@ def upload_job_done_handler(sender, job_id,metadata, kwargs):
          
     }
     response = requests.post(url, headers=headers, timeout=3000)
+    
+    # Emit WebSocket completion status to update UI
+    try:
+        cl = cl_socketio_obj
+        task_q = queue.Queue()
+        
+        # Extract job details from kwargs for UI update
+        job_kwargs = kwargs.get('kwargs', {})
+        p_name_text = job_kwargs.get('p_NameText', 'Backup')
+        j_sta = job_kwargs.get('jsta', job_id)
+        total_files = job_kwargs.get('totalfiles', '1')
+        files_done = job_kwargs.get('filesdone', total_files)
+        
+        backup_status = {
+            "backup_jobs": [
+                {
+                    "status": "completed",
+                    "paused": False,
+                    "name": p_name_text,
+                    "agent": str(app.config.get("getCodeHost", None)),
+                    "scheduled_time": datetime.datetime.fromtimestamp(float(j_sta)).strftime("%H:%M:%S") if j_sta else "",
+                    "progress_number": 100,
+                    "accuracy": 100,
+                    "finished": True,
+                    "id": j_sta,
+                    "totalfiles": total_files,
+                    "filesdone": files_done,
+                }
+            ]
+        }
+        task_q.put(backup_status)
+        task_q.put(None)
+        broadcast_ws_message(cl, task_queue=task_q, kill=False, msg_type_param="backup_data")
+        print(f"[UNC] Completion status emitted to UI for job {job_id}")
+    except Exception as ws_err:
+        print(f"[UNC] Failed to emit completion status: {ws_err}")
 
 def uploaded_part_file_handler(sender, file_path,metadata,per, **kwargs):
     print(f"File '{file_path}' uploaded successfully.")

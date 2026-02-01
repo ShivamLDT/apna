@@ -45,6 +45,16 @@ from fClient.unc.smbwrapper import (
     NotReadyError,
     OperationFailure,
 )
+# Import UNC logger for unified logging to unc.log
+from fClient.unc.unc_logger import (
+    log_connection_attempt,
+    log_connection_result,
+    log_transfer_start,
+    log_transfer_complete,
+    log_error as unc_log_error,
+    log_info as unc_log_info,
+    log_debug as unc_log_debug,
+)
 import module23
 
 ##kartik
@@ -509,11 +519,35 @@ class EncryptedFileSystem:
                     # )
                     self.server_conn.ensure_remote_folder(self.share_location,os.path.dirname(chunk_path))
                     #self.server_conn.disconnectTree()
+                    
+                    # Calculate expected hash BEFORE upload for verification
+                    encrypted_chunk.seek(0)
+                    expected_hash = hashlib.sha256(encrypted_chunk.getvalue()).hexdigest()
+                    encrypted_chunk.seek(0)
+                    upload_verified = False
 
                     for attempt in RETRY_LIMIT:
                         try:
+                            encrypted_chunk.seek(0)
                             self.server_conn.storeFile(self.share_location, chunk_path, encrypted_chunk)
-                            break
+                            
+                            # Verify upload by reading back and comparing checksum
+                            verify_buffer = BytesIO()
+                            try:
+                                self.server_conn.retrieveFile(self.share_location, chunk_path, verify_buffer)
+                                verify_buffer.seek(0)
+                                actual_hash = hashlib.sha256(verify_buffer.read()).hexdigest()
+                                if actual_hash == expected_hash:
+                                    upload_verified = True
+                                    logger.info(f"Uploaded and verified chunk {chunk_num}: {chunk_path}")
+                                    break
+                                else:
+                                    logger.warning(f"Upload checksum mismatch for chunk {chunk_num}, retrying...")
+                            except Exception as verify_err:
+                                logger.warning(f"Failed to verify uploaded chunk {chunk_num}: {verify_err}")
+                            finally:
+                                verify_buffer.close()
+                                
                         except (SMBTimeout, NotReadyError, OperationFailure, OSError) as e:
                             with open(chunk_path, "wb") as chunk_file:
                                 chunk_file.write(encrypted_chunk.getvalue())
@@ -523,7 +557,20 @@ class EncryptedFileSystem:
                             try:
                                 x = self.upload_to_server(chunk_path)
                                 if x > 0:
-                                    break
+                                    # Verify fallback upload
+                                    verify_buffer = BytesIO()
+                                    try:
+                                        self.server_conn.retrieveFile(self.share_location, chunk_path, verify_buffer)
+                                        verify_buffer.seek(0)
+                                        actual_hash = hashlib.sha256(verify_buffer.read()).hexdigest()
+                                        if actual_hash == expected_hash:
+                                            upload_verified = True
+                                    except:
+                                        pass
+                                    finally:
+                                        verify_buffer.close()
+                                    if upload_verified:
+                                        break
                             except:
                                 pass
 
@@ -536,16 +583,12 @@ class EncryptedFileSystem:
                                     f"Retrying to connect to NAS/File server...........{backoff}"
                                 )
                                 time.sleep(backoff)
+                    
+                    if not upload_verified:
+                        logger.error(f"Failed to verify upload for chunk {chunk_num} after all retries")
+                        raise RuntimeError(f"Upload verification failed for chunk {chunk_num}")
 
-                    # os.makedirs("K_"+chunk_folder, exist_ok=True)
-                    # with open("K_"+chunk_path, "wb") as chunk_file:
-                    #     chunk_file.write(encrypted_chunk.getvalue())
-                    #     chunk_file.flush()
-                    #     #self.upload_to_server(chunk_path)
-
-                    chunk_hash = hashlib.sha256(
-                        encrypted_chunk.getvalue()
-                    ).hexdigest()
+                    chunk_hash = expected_hash  # Use pre-calculated hash
                     chunk_json = {
                         "path": chunk_path,
                         "hash": chunk_hash,
@@ -717,75 +760,125 @@ class EncryptedFileSystem:
                         chunk_folder,
                         f"{os.path.basename(file_path)}.abb{chunk_num}",
                     )
-                    # self.server_conn.ensure_connected(self.share_location)
-                    # if not self.server_conn.tree:
-                    #     self.server_conn.connectTree(self.share_location)
-
-
-                    # self.server_conn.ensure_remote_folder(self.share_location,os.path.dirname(chunk_path))
+                    # Ensure connection and create remote folder structure before upload
+                    self.server_conn.ensure_connected(self.share_location)
                     
-                    # remote_file_path = os.path.join(self.remote_path, remote_filename).replace("\\","/")
-                    # parts = os.path.dirname(remote_file_path).split('/')
-                    # current_path = ''
+                    # Create folder structure on SMB share (required - SMB won't auto-create parent dirs)
+                    chunk_folder_path = os.path.dirname(chunk_path)
+                    if chunk_folder_path:
+                        self.server_conn.ensure_remote_folder(self.share_location, chunk_folder_path)
+                    
+                    # Log transfer start to unc.log
+                    chunk_size = encrypted_chunk.seek(0, 2)  # Get size
+                    encrypted_chunk.seek(0)
+                    # Calculate expected hash BEFORE upload for verification
+                    expected_hash = hashlib.sha256(encrypted_chunk.getvalue()).hexdigest()
+                    encrypted_chunk.seek(0)
+                    
+                    unc_log_info(f"CHUNK_UPLOAD_START | chunk={chunk_num}/{total_chunks} | path={chunk_path} | size={chunk_size} | hash={expected_hash[:16]}...")
+                    upload_start_time = time.time()
+                    upload_verified = False
                     
                     for attempt in RETRY_LIMIT:
                         try:
-                            #self.server_conn.storeFile(self.share_location, chunk_path, encrypted_chunk)
-                            #self.server_conn.storeFileSFTP(self.share_location, chunk_path, encrypted_chunk)
-                            self.server_conn.storeFileSFTP(self.share_location, chunk_path, encrypted_chunk)
+                            # Ensure BytesIO is at position 0 before each upload attempt
+                            encrypted_chunk.seek(0)
                             
-                            remote_path=os.path.join(self.share_location,chunk_path).replace("\\","/")
-                            # parts = os.path.dirname(remote_path).split('/')
-                            # current_path = ''
-                            # for part in parts:
-                            #     if part:  # Skip empty strings from leading/trailing slashes
-                            #         current_path = f"{current_path}/{part}" if current_path else part
-                            #         current_path=current_path.replace("//","/")
-                            #         try:
-                            #             self.sftp_object.stat(current_path)  # Check if directory exists
-                            #         except FileNotFoundError:
-                            #             self.sftp_object.mkdir(current_path) # Create if it doesn't exist
-            
-                            #self.sftp_object.mkdir(os.path.dirname(remote_path), mode=511)
-                            # self.sftp_object.putfo(encrypted_chunk,remote_path)
-
-                            # self._upload_file_Bytes(local_path=chunk_path
-                            #                          ,remote_path=remote_path
-                            #                          ,encrypted_chunk=encrypted_chunk)
-                            break
-                        #except (SMBTimeout, NotReadyError, OperationFailure, OSError) as e:
-                        except Exception as e:
-                            # with open(chunk_path, "wb") as chunk_file:
-                            #     chunk_file.write(encrypted_chunk.getvalue())
-                            #     chunk_file.flush()
-
-                            x = -1
+                            # Use SMB (storeFile) instead of SFTP for Windows UNC shares
+                            # SFTP requires SSH server (port 22) which Windows doesn't have by default
+                            # SMB uses port 445 which is native to Windows file sharing
+                            self.server_conn.storeFile(self.share_location, chunk_path, encrypted_chunk)
+                            
+                            # Verify upload by reading back and comparing checksum
+                            verify_buffer = BytesIO()
                             try:
+                                self.server_conn.retrieveFile(self.share_location, chunk_path, verify_buffer)
+                                verify_buffer.seek(0)
+                                actual_hash = hashlib.sha256(verify_buffer.read()).hexdigest()
+                                
+                                if actual_hash == expected_hash:
+                                    upload_verified = True
+                                    upload_duration = time.time() - upload_start_time
+                                    logger.info(f"Uploaded and verified chunk {chunk_num} to SMB share: {chunk_path}")
+                                    unc_log_info(f"CHUNK_UPLOAD_VERIFIED | chunk={chunk_num}/{total_chunks} | path={chunk_path} | duration={upload_duration:.2f}s")
+                                    break
+                                else:
+                                    # Checksum mismatch - data corrupted during transfer
+                                    unc_log_error("upload_checksum_mismatch", 
+                                        ValueError(f"Expected: {expected_hash[:16]}..., Got: {actual_hash[:16]}..."),
+                                        context=f"chunk={chunk_num} attempt={attempt+1} path={chunk_path}")
+                                    logger.warning(f"Upload verification failed for chunk {chunk_num}, retrying...")
+                                    # Continue to retry
+                            except Exception as verify_err:
+                                # Verification read failed - treat as upload failure
+                                unc_log_error("upload_verify_read", verify_err, context=f"chunk={chunk_num} attempt={attempt+1}")
+                                logger.warning(f"Failed to verify uploaded chunk {chunk_num}: {verify_err}")
+                            finally:
+                                verify_buffer.close()
+                                
+                        except Exception as e:
+                            logger.warning(f"SMB upload attempt {attempt + 1} failed: {e}")
+                            # Log to unc.log for tracking
+                            unc_log_error(f"smb_upload", e, context=f"chunk={chunk_num} attempt={attempt+1} path={chunk_path}")
+                            
+                            # Try to reconnect SMB before retry
+                            try:
+                                self.server_conn.ensure_connected(self.share_location)
+                                unc_log_debug(f"SMB reconnect attempt after failure")
+                            except Exception as reconn_err:
+                                unc_log_error("smb_reconnect", reconn_err, context=f"chunk={chunk_num}")
+                            
+                            # Fallback: write chunk to local disk then upload via alternate method
+                            try:
+                                os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
+                                encrypted_chunk.seek(0)
+                                with open(chunk_path, "wb") as chunk_file:
+                                    chunk_file.write(encrypted_chunk.getvalue())
+                                    chunk_file.flush()
+                                
+                                unc_log_info(f"FALLBACK_UPLOAD_ATTEMPT | chunk={chunk_num} | path={chunk_path}")
                                 x = self.upload_to_server(chunk_path)
                                 if x > 0:
-                                    break
-                            except:
-                                pass
+                                    # Verify fallback upload
+                                    verify_buffer = BytesIO()
+                                    try:
+                                        self.server_conn.retrieveFile(self.share_location, chunk_path, verify_buffer)
+                                        verify_buffer.seek(0)
+                                        actual_hash = hashlib.sha256(verify_buffer.read()).hexdigest()
+                                        if actual_hash == expected_hash:
+                                            upload_verified = True
+                                            upload_duration = time.time() - upload_start_time
+                                            logger.info(f"Uploaded and verified chunk {chunk_num} via fallback method")
+                                            unc_log_info(f"FALLBACK_UPLOAD_VERIFIED | chunk={chunk_num} | duration={upload_duration:.2f}s")
+                                    except Exception as fallback_verify_err:
+                                        unc_log_error("fallback_verify", fallback_verify_err, context=f"chunk={chunk_num}")
+                                    finally:
+                                        verify_buffer.close()
+                                    
+                                    # Clean up local file after successful upload
+                                    try:
+                                        os.remove(chunk_path)
+                                    except:
+                                        pass
+                                    if upload_verified:
+                                        break
+                            except Exception as fallback_err:
+                                logger.warning(f"Fallback upload also failed: {fallback_err}")
+                                unc_log_error("fallback_upload", fallback_err, context=f"chunk={chunk_num}")
 
-                            if x < 1:
-                                logging.error(
-                                    f"Upload attempt {attempt + 1} failed: {e}"
-                                )
-                                backoff = RETRY_BACKOFF_BASE**attempt
-                                print(
-                                    f"Retrying to connect to NAS/File server...........{backoff}"
-                                )
-                                time.sleep(backoff)
+                        backoff = RETRY_BACKOFF_BASE**attempt
+                        unc_log_info(f"UPLOAD_RETRY | chunk={chunk_num} | attempt={attempt+1} | backoff={backoff}s")
+                        print(f"Retrying to connect to NAS/File server...........{backoff}")
+                        time.sleep(backoff)
+                    
+                    # Check if upload was verified after all retries
+                    if not upload_verified:
+                        unc_log_error("upload_failed", 
+                            RuntimeError(f"Failed to upload and verify chunk after {len(RETRY_LIMIT)} attempts"),
+                            context=f"chunk={chunk_num} path={chunk_path}")
+                        raise RuntimeError(f"Upload verification failed for chunk {chunk_num} after all retries")
 
-                    # os.makedirs("K_"+chunk_folder, exist_ok=True)
-                    # with open("K_"+chunk_path, "wb") as chunk_file:
-                    #     chunk_file.write(encrypted_chunk.getvalue())
-                    #     chunk_file.flush()
-                    #     #self.upload_to_server(chunk_path)
-
-                    chunk_hash = hashlib.sha256(
-                        encrypted_chunk.getvalue()
-                    ).hexdigest()
+                    chunk_hash = expected_hash  # Use pre-calculated hash
                     chunk_json = {
                         "path": chunk_path,
                         "hash": chunk_hash,
@@ -901,7 +994,8 @@ class EncryptedFileSystem:
                 pass
 
 
-    def decrypt_and_reassemble_file(self, file_path=None, key=None, metadata=None):
+    def decrypt_and_reassemble_file(self, file_path=None, key=None, metadata=None, progress_callback=None):
+        """Restore file from UNC chunks. Optional progress_callback(chunk_idx, total_chunks, progress_pct)."""
 
         if not metadata:
             metadata = self.get_metadata_from_master(file_path)
@@ -922,6 +1016,12 @@ class EncryptedFileSystem:
             )
             if "Testing" in restore_file_path:
                 print("")
+            # Ensure Windows path has drive letter (e.g. Users\... -> C:\Users\...)
+            if restore_file_path and os.name == "nt":
+                import re
+                if not re.match(r'^[A-Za-z]:[\\/]', restore_file_path):
+                    sys_drive = os.environ.get("SystemDrive", "C:")
+                    restore_file_path = os.path.normpath(os.path.join(sys_drive + os.sep, restore_file_path.lstrip("\\/")))
             if os.path.exists(restore_file_path):
                 if not os.path.isfile(restore_file_path):
                     file_path = metadata.get("original_path", "").split(os.sep)[-1]
@@ -937,52 +1037,83 @@ class EncryptedFileSystem:
             if restore_file_path == "":
                 raise RuntimeError("Destination location not supplied by the user.")
 
+            unc_log_info(f"RESTORE_START | target={restore_file_path} | chunks={len(metadata.get('chunks', []))}")
             os.makedirs(guid_folder, exist_ok=True)
 
             decrypted_data = b""
             decompressed_data = None
             if os.path.exists(restore_file_path) and os.path.isfile(restore_file_path):
                 os.remove(restore_file_path)
-            for chunk_info in metadata["chunks"]:
+            for chunk_idx, chunk_info in enumerate(metadata["chunks"], 1):
                 chunk_path = chunk_info["path"]
                 os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
                 expected_hash = chunk_info["hash"]
-                self.download_from_server(chunk_path, chunk_path)
-                # self.download_from_server(chunk_path, os.path.basename(chunk_path))
-                with open(chunk_path, "rb") as chunk_file:
-                    encrypted_chunk = chunk_file.read()
-                    chunk_hash = hashlib.sha256(encrypted_chunk).hexdigest()
-                    # c= "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                    # e= "03fb1fe0d2811636f7078b9b57fc6ae4b41952670404c3cc1a6d6f1deffe8560"
-                    chunk_hash = expected_hash
-                    if chunk_hash != expected_hash:
-                        logger.error(f"Tampering detected in chunk: {chunk_path}")
-                        raise ValueError("Tampering detected in chunk")
+                
+                # Retry logic for chunk download with checksum validation
+                max_checksum_retries = 3
+                chunk_validated = False
+                
+                for checksum_attempt in range(max_checksum_retries):
+                    self.download_from_server(chunk_path, chunk_path)
+                    
+                    with open(chunk_path, "rb") as chunk_file:
+                        encrypted_chunk = chunk_file.read()
+                        chunk_hash = hashlib.sha256(encrypted_chunk).hexdigest()
+                        
+                        if chunk_hash == expected_hash:
+                            # Checksum validated successfully
+                            unc_log_info(f"CHUNK_CHECKSUM_OK | chunk={chunk_idx}/{len(metadata['chunks'])} | path={chunk_path}")
+                            chunk_validated = True
+                            break
+                        else:
+                            # Checksum mismatch - log and retry
+                            unc_log_error("checksum_mismatch", 
+                                ValueError(f"Expected: {expected_hash[:16]}..., Got: {chunk_hash[:16]}..."),
+                                context=f"chunk={chunk_idx} attempt={checksum_attempt+1} path={chunk_path}")
+                            logger.warning(f"Checksum mismatch for chunk {chunk_path}, attempt {checksum_attempt + 1}/{max_checksum_retries}")
+                            
+                            if checksum_attempt < max_checksum_retries - 1:
+                                # Delete corrupted chunk and retry download
+                                try:
+                                    os.remove(chunk_path)
+                                except:
+                                    pass
+                                time.sleep(RETRY_BACKOFF_BASE ** checksum_attempt)
+                
+                if not chunk_validated:
+                    # All retries failed - data corruption or tampering
+                    logger.error(f"Tampering/corruption detected in chunk after {max_checksum_retries} retries: {chunk_path}")
+                    unc_log_error("checksum_failed", 
+                        ValueError(f"Chunk validation failed after {max_checksum_retries} attempts"),
+                        context=f"chunk={chunk_idx} path={chunk_path} expected={expected_hash[:16]}...")
+                    raise ValueError(f"Checksum validation failed for chunk {chunk_path} after {max_checksum_retries} retries")
+                
+                # Checksum validated - now decompress the chunk
+                try:
+                    decompressed_data = self.decompress_data(
+                        data=encrypted_chunk, iv=metadata["givn"]
+                    )
+                except (
+                    py7zr.exceptions.Bad7zFile,
+                    ZstdError,
+                    py7zr.exceptions.DecompressionError,
+                    py7zr.exceptions.UnsupportedCompressionMethodError,
+                ) as e:
+                    decrypted_data += encrypted_chunk
                     try:
                         decompressed_data = self.decompress_data(
-                            data=encrypted_chunk, iv=metadata["givn"]
+                            data=decrypted_data, iv=metadata["givn"]
                         )
+                        decrypted_data = None
                     except (
                         py7zr.exceptions.Bad7zFile,
                         ZstdError,
                         py7zr.exceptions.DecompressionError,
                         py7zr.exceptions.UnsupportedCompressionMethodError,
                     ) as e:
-                        decrypted_data += encrypted_chunk
-                        try:
-                            decompressed_data = self.decompress_data(
-                                data=decrypted_data, iv=metadata["givn"]
-                            )
-                            decrypted_data = None
-                        except (
-                            py7zr.exceptions.Bad7zFile,
-                            ZstdError,
-                            py7zr.exceptions.DecompressionError,
-                            py7zr.exceptions.UnsupportedCompressionMethodError,
-                        ) as e:
-                            pass
+                        pass
 
-                    del encrypted_chunk
+                del encrypted_chunk
                 try:
                     if os.path.exists(chunk_path) and os.path.isfile(chunk_path):
                         os.remove(chunk_path)
@@ -996,6 +1127,15 @@ class EncryptedFileSystem:
                 except Exception as eee:
                     print("EEE" + str(eee))
                 decompressed_data = None
+
+                # Emit progress for UI: progress_number 0→100 as chunks complete (higher = more done)
+                if progress_callback:
+                    total_chunks = len(metadata["chunks"])
+                    progress_pct = float(100 * chunk_idx) / float(total_chunks) if total_chunks else 0
+                    try:
+                        progress_callback(chunk_idx, total_chunks, progress_pct)
+                    except Exception as cb_err:
+                        logger.debug(f"Progress callback error: {cb_err}")
 
             #         decrypted_data+=encrypted_chunk
             # #         decryptor = cipher.decryptor()
@@ -1042,7 +1182,16 @@ class EncryptedFileSystem:
             #     decompressed_data = self.decompress_data(decrypted_data)
             #     original_file.write(decompressed_data)
 
-            logger.info(f"File {original_file_path} successfully reassembled.")
+            # Verify file exists at target before declaring success
+            if not os.path.isfile(restore_file_path):
+                logger.error(f"Restore claimed success but file missing: {restore_file_path}")
+                unc_log_error("restore_file_missing", 
+                    FileNotFoundError(restore_file_path),
+                    context=f"target={restore_file_path}")
+                raise RuntimeError(f"File was not written to {restore_file_path}")
+            file_size = os.path.getsize(restore_file_path)
+            logger.info(f"File {original_file_path} successfully reassembled to {restore_file_path} ({file_size} bytes)")
+            unc_log_info(f"RESTORE_SUCCESS | target={restore_file_path} | size={file_size}")
             try:
                 self.cleanup_local_files(guid_folder)
             except:
@@ -1175,19 +1324,10 @@ class EncryptedFileSystem:
                 pass
             #for file in f_files:
             try:
-                try:
-                    if not self.sFTP_uploader:
-                        self.sFTP_uploader = module23.SFTPUploader(
-                            hostname=self.ip,
-                            port=22,
-                            username=self.username,
-                            password=self.password,
-                            max_workers=40
-                        )
-                except:
-                    self.sFTP_uploader =None
-                self.sFTP_uploader = self.get_SFTP_uploader()
-                self.sftp_client,self.sftp_object= self.sFTP_uploader._connect()
+                # SFTP initialization removed - using SMB (storeFile) for Windows UNC shares
+                # SFTP requires SSH server (port 22) which Windows doesn't have by default
+                # SMB uses port 445 which is native to Windows file sharing
+                self.sftp_object = None  # Not used when storeFile (SMB) is active
 
                 for i, file in enumerate(f_files, 1):
                     try:
@@ -1484,34 +1624,38 @@ class EncryptedFileSystem:
         import html
         # import mmap
         file_size = 0
+        upload_start = time.time()
         try:
             file_path = html.unescape(unquote(file_path))
+            local_file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+            unc_log_info(f"UPLOAD_TO_SERVER_START | path={file_path} | size={local_file_size}")
+            
             with open(file_path, "rb") as file_obj:
                 # with OpenShFile(file_path, "rb") as f:
                 # with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as file_obj:
                 with lock:
+                    # Create only the directory structure, NOT a folder with the filename
+                    folder_path = os.path.dirname(file_path)
+                    if folder_path:
+                        self.server_conn.ensure_remote_folder(self.share_location, folder_path)
 
-                    self.server_conn.ensure_remote_folder(self.share_location,file_path)
-
-                    # self.create_folder_tree(
-                    #     self.server_conn, os.path.dirname(file_path)
-                    # )
-
-                    # self.create_folder_tree(self.server_conn,os.path.dirname(file_path))
-                    # self.create_folder_tree(self.server_conn,file_path)
                     self.server_conn.storeFile(self.share_location, file_path, file_obj)
-                    # self.server_conn.storeFile(self.share_location, os.path.basename(file_path), file_obj)
-                    # self.server_conn.storeFile(os.path.join(self.share_location,os.path.basename(file_path)), os.path.basename(file_path), file_obj)
 
+            upload_duration = time.time() - upload_start
             logger.info(f"Uploaded {file_path} to share.")
+            unc_log_info(f"UPLOAD_TO_SERVER_SUCCESS | path={file_path} | duration={upload_duration:.2f}s")
             file_size = 1
         except Exception as e:
+            upload_duration = time.time() - upload_start
             logger.error(f"Error uploading file to server: {e}")
+            unc_log_error("upload_to_server", e, context=f"path={file_path} duration={upload_duration:.2f}s")
             # raise RuntimeError(e)
         return file_size
 
     def download_from_server(self, file_name, dest_path):
-
+        download_start = time.time()
+        unc_log_info(f"DOWNLOAD_START | remote={file_name} | local={dest_path}")
+        
         try:
             for attempt in RETRY_LIMIT:
                 try:
@@ -1520,16 +1664,23 @@ class EncryptedFileSystem:
                             self.server_conn.retrieveFile(
                                 self.share_location, file_name, file_obj
                             )
+                    download_duration = time.time() - download_start
+                    file_size = os.path.getsize(dest_path) if os.path.exists(dest_path) else 0
                     logger.info(f"Downloaded {file_name} from share.")
+                    unc_log_info(f"DOWNLOAD_SUCCESS | remote={file_name} | size={file_size} | duration={download_duration:.2f}s")
                     break
                 except (SMBTimeout, NotReadyError, OperationFailure, OSError) as e:
                     logging.warning(f"Download attempt {attempt + 1} failed: {e}")
+                    unc_log_error("download", e, context=f"attempt={attempt+1} remote={file_name}")
                     backoff = RETRY_BACKOFF_BASE**attempt
+                    unc_log_info(f"DOWNLOAD_RETRY | attempt={attempt+1} | backoff={backoff}s")
                     print(f"Retrying to connect to NAS/File server...........{backoff}")
                     time.sleep(backoff)
 
         except Exception as e:
+            download_duration = time.time() - download_start
             logger.error(f"Error downloading file from server: {e}")
+            unc_log_error("download_from_server", e, context=f"remote={file_name} duration={download_duration:.2f}s")
             # raise RuntimeError(e)
 
     def cleanup_files(self, file_paths):

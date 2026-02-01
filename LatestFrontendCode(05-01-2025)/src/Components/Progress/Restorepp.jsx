@@ -341,13 +341,16 @@ const Restorepp = ({ searchQuery = '' }) => {
                                 existingIndex !== -1 ? newAnimatedData[agent][existingIndex] : null;
 
                             const isFileLevel = job.status === "counting" && !!job.filename;
+                            // UNC chunk-level: no restore_accuracy, file progress IS job progress – don't freeze
+                            const hasJobLevelAggregation = job.restore_accuracy !== undefined && job.restore_accuracy !== null;
+                            const shouldFreezeJobProgress = isFileLevel && hasJobLevelAggregation;
                             const animatedJob = {
                                 ...previousJob,
                                 ...job,
                                 progress_number_original: job.progress_number,
 
-                                progress_number: isFileLevel
-                                    ? previousJob?.progress_number          // freeze job progress
+                                progress_number: shouldFreezeJobProgress
+                                    ? previousJob?.progress_number          // freeze job when server sends separate restore_accuracy
                                     : Math.min(job.progress_number ?? previousJob?.progress_number ?? 0, 100),
 
                                 // progress_number: isFileLevel
@@ -669,7 +672,8 @@ const Restorepp = ({ searchQuery = '' }) => {
                                                     );
                                                 }
                                             } else {
-                                                displayProgressValue = 0;
+                                                // UNC/chunk-level restore: use progress_number (0→100 as chunks complete)
+                                                displayProgressValue = Math.max(0, Math.min(100, Number(jobToDisplay.progress_number ?? 0)));
                                             }
 
 
