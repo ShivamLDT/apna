@@ -93,10 +93,14 @@ const ProgressBarChart = () => {
   const handleRefresh = () => {
     setLoading(true);
 
-    localStorage.removeItem('storedAgentDataa');
-    localStorage.removeItem('storedAnimatedDataa');
-    localStorage.removeItem('storedRestoreAgentData');
-    localStorage.removeItem('storedRestoreAnimatedData');
+    // Only clear backup progress; preserve restore progress so it survives refresh
+    if (currentPage === 'Backup') {
+      localStorage.removeItem('storedAgentDataa');
+      localStorage.removeItem('storedAnimatedDataa');
+      localStorage.removeItem('storedJobFiles');
+    }
+    // Restore data (storedRestoreAgentData, storedRestoreAnimatedData) is NOT cleared
+    // so in-progress restore progress bar remains visible after refresh
     setProgress(0);
 
     // Simulate refresh process

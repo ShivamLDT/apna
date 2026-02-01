@@ -8119,9 +8119,10 @@ def save_savelogdata(
         #     )
 
         # xession.commit()
+        # Include UNC in backup progress aggregation - UNC backups now properly tracked
         sql_sum = (
             "SELECT id, SUM(sum_all), SUM(sum_done) "
-            f"FROM backups WHERE data_repo not in ('UNC') and name = {float(j_sta)} "
+            f"FROM backups WHERE name = {float(j_sta)} "
             "GROUP BY id ORDER BY id DESC"
         )
 
@@ -8360,20 +8361,8 @@ def update_filebackup_counts(
         # )
         # xession.execute(stmt)
 
-        # sql = text("""
-        # UPDATE backups_M
-        # SET sum_all = sq.sumall,
-        #     sum_done = sq.sumdone
-        # FROM (
-        #     SELECT name AS log_id,
-        #             count(sum_all) AS sumall,
-        #             count(sum_done) AS sumdone
-        #     FROM backups
-        #     WHERE (sum_done/sum_all)=1 and data_repo not in ('UNC') 
-        #     GROUP BY name
-        # ) AS sq
-        # WHERE backups_M.id = sq.log_id;
-        # """)  
+        # UNC backups are now included in progress aggregation
+        # Previous exclusion removed to ensure UNC backup status updates correctly
         sql = text("""
         UPDATE backups_M
         SET sum_done = sq.sumdone
@@ -8382,7 +8371,7 @@ def update_filebackup_counts(
                     count(sum_all) AS sumall,
                     count(sum_done) AS sumdone
             FROM backups
-            WHERE (sum_done/sum_all)=1 and data_repo not in ('UNC') 
+            WHERE (sum_done/sum_all)=1
             GROUP BY name
         ) AS sq
         WHERE backups_M.id = sq.log_id;
@@ -9157,7 +9146,10 @@ def get_restore_data():
                 is_aws_azure_onedrive_restore = rep_upper in ["AWSS3", "AZURE", "ONEDRIVE"] and (
                     jsrepd.get("file_name_x") or (jsrepd.get("path") is not None and jsrepd.get("j_sta") is not None)
                 )
-                is_cloud_restore = is_gdrive_restore or is_aws_azure_onedrive_restore
+                # UNC backups store data on remote share - treat like cloud restore (no local manifest)
+                # UNC metadata includes: scombm (host), scombs (share), guid (folder containing chunks)
+                is_unc_restore = rep_upper == "UNC" and jsrepd.get("scombm") and jsrepd.get("scombs")
+                is_cloud_restore = is_gdrive_restore or is_aws_azure_onedrive_restore or is_unc_restore
                 if is_cloud_restore:
                     total_chunks_g = int(jsrepd.get("total_chunks", 1)) or 1
                     manifest_data = {
@@ -9165,6 +9157,37 @@ def get_restore_data():
                         "chunks": {str(i): "" for i in range(1, total_chunks_g + 1)},
                     }
                     found_manifest_path = None
+                    
+                    # UNC-specific: Build manifest from stored chunk metadata
+                    # UNC backup stores chunks array with path, hash, size in jsrepd
+                    if is_unc_restore and jsrepd.get("chunks"):
+                        unc_chunks = jsrepd.get("chunks", [])
+                        if isinstance(unc_chunks, list) and len(unc_chunks) > 0:
+                            manifest_data["total_chunks"] = len(unc_chunks)
+                            manifest_data["chunks"] = {}
+                            for idx, chunk_info in enumerate(unc_chunks, 1):
+                                if isinstance(chunk_info, dict):
+                                    # Store chunk hash for verification
+                                    manifest_data["chunks"][str(idx)] = chunk_info.get("hash", "")
+                            # Store UNC connection info for client to use during restore
+                            manifest_data["unc_host"] = jsrepd.get("scombm", "")
+                            manifest_data["unc_share"] = jsrepd.get("scombs", "")
+                            manifest_data["unc_guid"] = jsrepd.get("guid", "")
+                            manifest_data["unc_chunks"] = unc_chunks  # Full chunk info for paths
+                            if jsrepd.get("givn"):
+                                manifest_data["givn"] = jsrepd.get("givn")
+                            log_event(
+                                logger, logging.INFO, ensure_job_id(j_sta), "restore",
+                                file_path=rec_dict.get("full_file_name"), file_id=backup_id,
+                                error_code="", error_message="",
+                                extra={
+                                    "event": "unc_manifest_built",
+                                    "unc_host": manifest_data["unc_host"],
+                                    "unc_share": manifest_data["unc_share"],
+                                    "total_chunks": manifest_data["total_chunks"],
+                                },
+                            )
+                    
                     try:
                         if os.path.exists(manifest_path):
                             with open(manifest_path, "r", encoding="utf-8") as manifest_file:
@@ -9350,6 +9373,19 @@ def get_restore_data():
                     #print("conn succeed")
                 except:
                     pass
+                # For UNC, use RestoreLocation directly (the complex _tcc_value replacement doesn't work)
+                # For other storage types, use the replacement logic
+                if str(selectedStorageType).upper() == "UNC":
+                    # UNC: Use restore location directly with {{DRIVE}} placeholder
+                    _tccx_value = str(RestoreLocation).replace(":", "{{DRIVE}}")
+                    _tccn_value = str(RestoreLocation).replace(":", "{{DRIVE}}")
+                else:
+                    _tccx_value = _tcc_value.replace(
+                        _rec_fpath.replace(":", "{{DRIVE}}"),
+                        str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
+                    ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else '')
+                    _tccn_value = _tccx_value  # Same transformation
+                
                 header = {
                     "id": backup_id,
                     "pid": backup_pid,
@@ -9387,12 +9423,7 @@ def get_restore_data():
                     ),
                     "tccx": base64.b64encode(
                         gzip.compress(
-                            _tcc_value
-                            .replace(
-                                _rec_fpath.replace(":", "{{DRIVE}}"),
-                                str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
-                            ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else '')
-                            .encode("UTF-8"),
+                            _tccx_value.encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
@@ -9506,8 +9537,14 @@ def get_restore_data():
                             f"{objIPTarget}/restoretest", headers=re, json={"test": "0","fci":str(fci),"ftotal":str(ftotal)},
                             timeout=300
                         )
-                        if res.status_code in [200,201]:
-                            files_restored+=1
+                        # Only count as restored when response body explicitly says success
+                        if res.status_code in [200, 201]:
+                            try:
+                                res_body = res.json() if res.content else {}
+                                if res_body.get("restore") == "success":
+                                    files_restored += 1
+                            except Exception:
+                                pass
                     except Exception as e:
                         log_event(
                             logger, logging.WARNING, ensure_job_id(j_sta), "restore",
@@ -9750,7 +9787,13 @@ def get_restore_data():
             "local",
             "localstorage",
         ]:
-            selectedStorageType = "local','local storage','LAN"
+            selectedStorageType = "local','local storage','LAN','On-Premise'"
+
+        if str(selectedStorageType).lower().replace(" ", "") in [
+            "on-premise",
+            "onpremise",
+        ]:
+            selectedStorageType = "LAN','On-Premise','local','local storage'"
 
         if str(selectedStorageType).lower().replace(" ", "") in [
             "gdrive",
@@ -9759,7 +9802,7 @@ def get_restore_data():
             selectedStorageType = "GDRIVE','Google Drive"
         agent_candidates = [value for value in {requested_agent, selectedAgent} if value]
         if selectedAction == "fetchAll":
-            selectedStorageType = "local','local storage','LAN','GDRIVE','Google Drive','UNC','AWSS3','AZURE','ONEDRIVE" #','NAS"
+            selectedStorageType = "local','local storage','LAN','On-Premise','GDRIVE','Google Drive','UNC','AWSS3','AZURE','ONEDRIVE" #','NAS"
 
         agent_filter_clause = ""
         if agent_candidates:
@@ -9856,6 +9899,8 @@ def get_restore_data():
         if dbname not in candidate_paths:
             candidate_paths.insert(0, dbname)
         results = {}
+        all_records = []  # aggregate from all candidate DBs when fetchAll so no backup is missed
+        seen_ids = set()
         for candidate in candidate_paths:
             if not os.path.isfile(candidate):
                 continue
@@ -9867,10 +9912,43 @@ def get_restore_data():
             if candidate in try_results and len(try_results[candidate]) > 0:
                 status, records = try_results[candidate][0]
                 if status == "Success" and records:
-                    results = {dbname: [(status, records)]}
-                    break
-        if not results and os.path.isdir(location_dir):
+                    if selectedAction == "fetchAll":
+                        for row in records:
+                            row_id = dict(row).get("id")
+                            if row_id is not None and row_id not in seen_ids:
+                                seen_ids.add(row_id)
+                                all_records.append(row)
+                    else:
+                        results = {dbname: [(status, records)]}
+                        break
+        if selectedAction == "fetchAll" and os.path.isdir(location_dir):
             # Fallback: list directory and try any file that looks like agent/obj (any extension)
+            try:
+                for fname in os.listdir(location_dir):
+                    base, ext = os.path.splitext(fname)
+                    if base not in (obj, selectedAgent, requested_agent):
+                        continue
+                    candidate = os.path.join(location_dir, fname)
+                    if not os.path.isfile(candidate):
+                        continue
+                    if candidate in candidate_paths:
+                        continue
+                    qrs = [(candidate, [restore_query])]
+                    try_results = s_manager.execute_queries(qrs)
+                    if candidate in try_results and len(try_results[candidate]) > 0:
+                        status, records = try_results[candidate][0]
+                        if status == "Success" and records:
+                            for row in records:
+                                row_id = dict(row).get("id")
+                                if row_id is not None and row_id not in seen_ids:
+                                    seen_ids.add(row_id)
+                                    all_records.append(row)
+            except Exception:
+                pass
+        if selectedAction == "fetchAll" and all_records:
+            results = {dbname: [("Success", all_records)]}
+        if not results and os.path.isdir(location_dir):
+            # Fallback when not fetchAll: list directory and try any file that looks like agent/obj
             try:
                 for fname in os.listdir(location_dir):
                     base, ext = os.path.splitext(fname)
@@ -10591,14 +10669,20 @@ def handle_socketio(message):
 
 @app.route("/api/browseUNC", methods=["POST"])
 def browseUNC():
-
     import requests
+    # UNC logging - import from parent FlaskWebProject3 folder (same level as lans.py)
+    try:
+        from unc_logger import log_browse_unc_request, log_error, log_info
+        has_unc_logger = True
+    except ImportError:
+        has_unc_logger = False
+        def log_browse_unc_request(*args, **kwargs): pass
+        def log_error(*args, **kwargs): pass
+        def log_info(*args, **kwargs): pass
 
     ip = ""
     try:
-
         rdata = request.json
-
         current_path = rdata.get("path", "")
         client_node_browse = rdata.get("node", "")
         userid = rdata.get("noidadd", "")
@@ -10617,37 +10701,44 @@ def browseUNC():
         if method == "":
             method = "."
 
+        # Log incoming browseUNC request with masked credentials
+        client_ip = request.remote_addr if request else None
+        log_browse_unc_request(client_node_browse, current_path, method, client_ip)
+
         if (client_node_browse) == "" or (userid) == "" or (password) == "":
+            log_error("browseUNC", "Invalid host/credentials", context="missing_params")
             return (jsonify({"messsage": "invalid host/credentials"}), 200)
+        
         conn = NetworkShare(client_node_browse, current_path, userid, password)
-        #conn = SMBConnection(userid,password,"",client_node_browse,use_ntlm_v2=True,is_direct_tcp=True)
         if not conn:
-            conn=    SMBConnection("admin","Server123","","192.168.2.15",use_ntlm_v2=True,is_direct_tcp=True)
+            conn = SMBConnection("admin","Server123","","192.168.2.15",use_ntlm_v2=True,is_direct_tcp=True)
         
         if rdata:
             if method == ".":
                 try:
                     conn = NetworkScanner()
                     data = conn.run()
+                    log_info(f"BROWSE_UNC_SCAN | nodes_found={len(data)}")
                     return (jsonify(nodes=data), 200)
                 except Exception as eas:
-                    print(str(eas))
+                    log_error("browseUNC_scan", eas)
                     return (jsonify({"messsage": str(eas)}), 500)
 
             if method == "trace":
                 try:
                     conn = NetworkShare(client_node_browse, "", userid, password)
                     if conn.test_connection():
+                        log_info(f"BROWSE_UNC_TRACE | host={client_node_browse} | result=success")
                         return (jsonify({"messsage": "Connection successfull"}), 200)
                     else:
+                        log_info(f"BROWSE_UNC_TRACE | host={client_node_browse} | result=failed")
                         return (jsonify({"messsage": "Connection failed"}), 200)
                 except Exception as eas:
-                    print(str(eas))
+                    log_error("browseUNC_trace", eas, context=client_node_browse)
                     return (jsonify({"messsage": str(eas)}), 500)
 
             if method == "browse":
                 try:
-
                     if conn.connect():
                         json = conn.create_file_paths_json(
                             "file_paths.json", donl, level
@@ -10655,31 +10746,31 @@ def browseUNC():
                         conn.disconnect()
                         return (json, 200)
                     else:
+                        log_error("browseUNC_browse", "Connection failed", context=client_node_browse)
                         return (jsonify({"messsage": "Connection failed"}), 200)
                 except Exception as eas:
-                    print(str(eas))
+                    log_error("browseUNC_browse", eas, context=client_node_browse)
                     return (jsonify({"messsage": str(eas)}), 500)
                 finally:
                     conn.disconnect
 
             if method == "shares":
                 try:
-
                     if conn.connect():
                         json = conn.get_shared_list()
                         conn.disconnect()
                         return (json, 200)
                     else:
+                        log_error("browseUNC_shares", "Connection failed", context=client_node_browse)
                         return (jsonify({"messsage": "Connection failed"}), 200)
                 except Exception as eas:
-                    print(str(eas))
+                    log_error("browseUNC_shares", eas, context=client_node_browse)
                     return (jsonify({"messsage": str(eas)}), 500)
                 finally:
                     conn.disconnect
 
     except Exception as exs:
-        print(str(exs))
-    print(rdata)
+        log_error("browseUNC", exs, context="unhandled_exception")
     return (rdata, 500)
 
 

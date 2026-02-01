@@ -185,6 +185,21 @@ def restoretest():
         tccx = gzip.decompress(tccx)
         tccx = tccx.decode("UTF-8")
         tccx = tccx.replace("{{DRIVE}}", ":")
+        
+        # Fix malformed paths where drive letter is at the end (e.g., "Users\LDT\Documents\C:")
+        # This can happen due to server-side path replacement issues
+        import re
+        if tccx and not re.match(r'^[A-Za-z]:[\\/]', tccx):
+            # Check if drive letter is at the end
+            drive_at_end = re.search(r'[\\/]([A-Za-z]:)$', tccx)
+            if drive_at_end:
+                drive_letter = drive_at_end.group(1)
+                # Remove drive from end and prepend it correctly
+                tccx = drive_letter + "\\" + tccx[:drive_at_end.start()]
+            else:
+                # No drive letter found - might be relative path, prepend nothing
+                pass
+        
         tccx = tccx.split(os.path.sep)
         if "Testing" in tccx:
             print("")
@@ -272,8 +287,18 @@ def restoretest():
         tccn = gzip.decompress(tccn)
         tccn = tccn.decode("UTF-8")
         tccn = tccn.replace("{{DRIVE}}", ":")
+        
+        # Fix malformed paths where drive letter is at the end (e.g., "Users\LDT\Documents\C:")
+        # This can happen due to server-side path replacement issues
+        import re as re_path_fix
+        if tccn and not re_path_fix.match(r'^[A-Za-z]:[\\/]', tccn):
+            drive_at_end = re_path_fix.search(r'[\\/]([A-Za-z]:)$', tccn)
+            if drive_at_end:
+                drive_letter = drive_at_end.group(1)
+                tccn = drive_letter + "\\" + tccn[:drive_at_end.start()]
+        
         tccn = tccn.split(os.path.sep)
-       #here is a problem that path is comming WrongDocumentErr
+        # Path normalization applied above
         
         tccnrest = request.headers.get("tccnrest")
         tccnrest = base64.b64decode(tccnrest)
@@ -368,8 +393,10 @@ def restoretest():
         #     print("")
 
         
-        import re; is_drive = lambda tccn: bool(re.match(r'^[A-Za-z]:[\\/]', str(tccn)))
+        import re; is_drive = lambda p: bool(re.match(r'^[A-Za-z]:[\\/]', str(p)))
         start_index= 0 if is_drive((os.sep).join(tccn)) else 1
+        # tccx (restore target) must keep drive letter - use its own start_index, not tccn's
+        tccx_start_index = 0 if (tccx and len(tccx) > 0 and re.match(r'^[A-Za-z]:$', str(tccx[0]))) else start_index
         if len(tccn) > 1:
             os.makedirs(os.path.sep.join(tccn[start_index : len(tccn) - 1]), exist_ok=True)
         else:
@@ -406,12 +433,11 @@ def restoretest():
             extra={"event": "restore_start"},
         )
         if len(tccx) > 1:
-            os.makedirs(os.path.sep.join(tccx[start_index : len(tccx) - 1]), exist_ok=True)
+            os.makedirs(os.path.sep.join(tccx[tccx_start_index : len(tccx) - 1]), exist_ok=True)
         else:
-            os.makedirs(os.path.sep.join(tccx[start_index:]), exist_ok=True)
-        # tccx = os.path.sep.join(tccx[1:len(tcc)-2])
-
-        tccx = os.path.sep.join(tccx[start_index:])       
+            os.makedirs(os.path.sep.join(tccx[tccx_start_index:]), exist_ok=True)
+        # tccx (restore path) uses tccx_start_index so drive letter is preserved
+        tccx = os.path.sep.join(tccx[tccx_start_index:])       
         res_h1.update({"tccx":tccx}) 
         # responset = requests.post("http://"+request.remote_addr+":53335/data/download",headers={"id":id},stream=True)
 
@@ -1380,8 +1406,40 @@ def restoretest():
                 #     print("Copied")
                 is_dycryption_done=False
                 if conn:
+                    from fClient.cktio import cl_socketio_obj
+                    from datetime import datetime as dt_restore
+                    def _unc_restore_progress_cb(chunk_idx, total_chunks, progress_pct):
+                        """Emit restore progress to server for UI update."""
+                        try:
+                            backup_status = {
+                                "restore_flag": True,
+                                "backup_jobs": [
+                                    {
+                                        "status": "counting",
+                                        "restore_flag": True,
+                                        "name": p_NameText,
+                                        "agent": str(app.config.get("getCodeHost", "")),
+                                        "scheduled_time": dt_restore.fromtimestamp(float(tccnstamp)).strftime("%H:%M:%S"),
+                                        "progress_number": float(progress_pct),
+                                        "id": float(tccnstamp),
+                                        "repo": rep,
+                                        "filename": os.path.sep.join(tccn) if isinstance(tccn, list) else tccn,
+                                        "restore_location": tccx,
+                                    }
+                                ]
+                            }
+                            if not cl_socketio_obj.connected:
+                                try:
+                                    cl_socketio_obj.connect(f"ws://{app.config['server_ip']}:{app.config['server_port']}")
+                                except Exception:
+                                    pass
+                            if cl_socketio_obj.connected:
+                                cl_socketio_obj.emit("backup_data", backup_status)
+                        except Exception as cb_err:
+                            logger.debug(f"UNC restore progress emit: {cb_err}")
                     is_dycryption_done=conn.decrypt_and_reassemble_file(
-                        file_path=jsrepd["original_path"], metadata=jsrepd
+                        file_path=jsrepd["original_path"], metadata=jsrepd,
+                        progress_callback=_unc_restore_progress_cb
                     )
                 else:
                     try:
@@ -1480,6 +1538,34 @@ def restoretest():
         #         os.remove(target_file_name+str(tccnstamp_date)+ ".bakx")
         #     except:
         #         print("not removed")
+
+        # Verify file actually exists before reporting success (UNC/restore path)
+        restore_target = tccx if tccx else (target_file_name or jsrepd.get("restore_path", ""))
+        if restore_target and str(rep).upper() == "UNC":
+            if not os.path.isfile(restore_target):
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    job_id,
+                    "restore",
+                    file_path=restore_target,
+                    file_id=obj,
+                    error_code="RESTORE_FILE_MISSING",
+                    error_message=f"File not found after restore: {restore_target}",
+                    extra={"event": "restore_file_verify_failed", "restore_path": restore_target},
+                )
+                send_response = make_response(
+                    jsonify({
+                        "file": jsrepd.get("original_path", ""),
+                        "restore": "failed",
+                        "reason": f"File was not written to target: {restore_target}",
+                    }),
+                    500,
+                )
+                if res_h1:
+                    for key, value in res_h1.items():
+                        send_response.headers[key] = value
+                return send_response
 
         send_response = make_response (jsonify({"file": jsrepd.get("original_path", target_file_name or ""), "restore": "success", "reason": ""}), 200)
         if res_h1:
@@ -1585,6 +1671,15 @@ def restoretest2():
         tccx = gzip.decompress(tccx)
         tccx = tccx.decode("UTF-8")
         tccx = tccx.replace("{{DRIVE}}", ":")
+        
+        # Fix malformed paths where drive letter is at the end (e.g., "Users\LDT\Documents\C:")
+        import re as re_fix
+        if tccx and not re_fix.match(r'^[A-Za-z]:[\\/]', tccx):
+            drive_at_end = re_fix.search(r'[\\/]([A-Za-z]:)$', tccx)
+            if drive_at_end:
+                drive_letter = drive_at_end.group(1)
+                tccx = drive_letter + "\\" + tccx[:drive_at_end.start()]
+        
         tccx = tccx.split(os.path.sep)
          
         rep = request.headers.get("rep")
@@ -1642,8 +1737,19 @@ def restoretest2():
         tccn = gzip.decompress(tccn)
         tccn = tccn.decode("UTF-8")
         tccn = tccn.replace("{{DRIVE}}", ":")
+        
+        # Fix malformed paths where drive letter is at the end (e.g., "Users\LDT\Documents\C:")
+        import re as re_tccn_fix
+        if tccn and not re_tccn_fix.match(r'^[A-Za-z]:[\\/]', tccn):
+            drive_at_end = re_tccn_fix.search(r'[\\/]([A-Za-z]:)$', tccn)
+            if drive_at_end:
+                drive_letter = drive_at_end.group(1)
+                tccn = drive_letter + "\\" + tccn[:drive_at_end.start()]
+        
         tccn = tccn.split(os.path.sep)
-       #here is a problem that path is comming WrongDocumentErr
+       #here is a problem that path is comming WrongDocumentErr (Fixed with drive letter check above)
+        import re as re_tccx2
+        tccx_start_index = 0 if (tccx and len(tccx) > 0 and re_tccx2.match(r'^[A-Za-z]:$', str(tccx[0]))) else 1
         
         tccnrest = request.headers.get("tccnrest")
         tccnrest = base64.b64decode(tccnrest)
@@ -1709,12 +1815,11 @@ def restoretest2():
         tccn = os.path.sep.join(tccn[1:])
         res_h1.update({"tccn":tccn}) 
         if len(tccx) > 1:
-            os.makedirs(os.path.sep.join(tccx[1 : len(tccx) - 1]), exist_ok=True)
+            os.makedirs(os.path.sep.join(tccx[tccx_start_index : len(tccx) - 1]), exist_ok=True)
         else:
-            os.makedirs(os.path.sep.join(tccx[1:]), exist_ok=True)
-        # tccx = os.path.sep.join(tccx[1:len(tcc)-2])
-
-        tccx = os.path.sep.join(tccx[1:])       
+            os.makedirs(os.path.sep.join(tccx[tccx_start_index:]), exist_ok=True)
+        # tccx (restore path) uses tccx_start_index so drive letter is preserved
+        tccx = os.path.sep.join(tccx[tccx_start_index:])       
         res_h1.update({"tccx":tccx}) 
         # responset = requests.post("http://"+request.remote_addr+":53335/data/download",headers={"id":id},stream=True)
 
@@ -1913,8 +2018,40 @@ def restoretest2():
                 #     print("Copied")
                 is_dycryption_done=False
                 if conn:
+                    from fClient.cktio import cl_socketio_obj
+                    from datetime import datetime as dt_restore
+                    def _unc_restore_progress_cb(chunk_idx, total_chunks, progress_pct):
+                        """Emit restore progress to server for UI update."""
+                        try:
+                            backup_status = {
+                                "restore_flag": True,
+                                "backup_jobs": [
+                                    {
+                                        "status": "counting",
+                                        "restore_flag": True,
+                                        "name": p_NameText,
+                                        "agent": str(app.config.get("getCodeHost", "")),
+                                        "scheduled_time": dt_restore.fromtimestamp(float(tccnstamp)).strftime("%H:%M:%S"),
+                                        "progress_number": float(progress_pct),
+                                        "id": float(tccnstamp),
+                                        "repo": rep,
+                                        "filename": os.path.sep.join(tccn) if isinstance(tccn, list) else tccn,
+                                        "restore_location": tccx,
+                                    }
+                                ]
+                            }
+                            if not cl_socketio_obj.connected:
+                                try:
+                                    cl_socketio_obj.connect(f"ws://{app.config['server_ip']}:{app.config['server_port']}")
+                                except Exception:
+                                    pass
+                            if cl_socketio_obj.connected:
+                                cl_socketio_obj.emit("backup_data", backup_status)
+                        except Exception as cb_err:
+                            logger.debug(f"UNC restore progress emit: {cb_err}")
                     is_dycryption_done=conn.decrypt_and_reassemble_file(
-                        file_path=jsrepd["original_path"], metadata=jsrepd
+                        file_path=jsrepd["original_path"], metadata=jsrepd,
+                        progress_callback=_unc_restore_progress_cb
                     )
                 else:
                     try:
@@ -2058,18 +2195,27 @@ def restoretest2():
         return response
 
 def getConn(repo_d={},keyx=None,job_id=None):
+    """
+    Get UNC/SMB connection for backup operations.
+    Uses SMB3-compatible NetworkShare.test_connection() which validates
+    credentials via SMB protocol (port 445) - works with Windows, Linux Samba, and NAS.
+    """
     from fClient.unc import EncryptedFileSystem, NetworkShare
     from fClient.cm import CredentialManager
     j = app.apscheduler.get_job(id=job_id)
 
+    # Test SMB connection using SMB3-compatible method (not SFTP)
+    # NetworkShare now uses SMBConnection with NTLMv2 for SMB3 support
     if NetworkShare(repo_d["ipc"], "", repo_d["uid"], repo_d["idn"]).test_connection():
         try:
             return EncryptedFileSystem(
                 repo_d["ipc"], repo_d["uid"], repo_d["idn"], repo_d["loc"]
             )
-        except:
+        except Exception as e:
+            print(f"[!] Failed to create EncryptedFileSystem: {e}")
             return None
     else:
+        # Fallback: try credentials from CredentialManager
         u, p = CredentialManager(repo_d["ipc"],keyx=keyx).retrieve_credentials(repo_d["ipc"])
         if not u or not p:
             return None
@@ -2081,6 +2227,7 @@ def getConn(repo_d={},keyx=None,job_id=None):
                 return EncryptedFileSystem(repo_d["ipc"], u, p, repo_d["loc"])
 
             except Exception as de:
+                print(f"[!] Failed to connect with stored credentials: {de}")
                 return None
 
 

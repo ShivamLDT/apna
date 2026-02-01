@@ -341,13 +341,16 @@ const Restorepp = ({ searchQuery = '' }) => {
                                 existingIndex !== -1 ? newAnimatedData[agent][existingIndex] : null;
 
                             const isFileLevel = job.status === "counting" && !!job.filename;
+                            // UNC chunk-level: no restore_accuracy, file progress IS job progress – don't freeze
+                            const hasJobLevelAggregation = job.restore_accuracy !== undefined && job.restore_accuracy !== null;
+                            const shouldFreezeJobProgress = isFileLevel && hasJobLevelAggregation;
                             const animatedJob = {
                                 ...previousJob,
                                 ...job,
                                 progress_number_original: job.progress_number,
 
-                                progress_number: isFileLevel
-                                    ? previousJob?.progress_number          // freeze job progress
+                                progress_number: shouldFreezeJobProgress
+                                    ? previousJob?.progress_number          // freeze job when server sends separate restore_accuracy
                                     : Math.min(job.progress_number ?? previousJob?.progress_number ?? 0, 100),
 
                                 // progress_number: isFileLevel
@@ -647,7 +650,6 @@ const Restorepp = ({ searchQuery = '' }) => {
                                             const isCompleted =
                                                 jobToDisplay.status === 'completed' ||
                                                 (jobToDisplay.finished && !jobToDisplay.status);
-                                            const isRestoring = !isFailed && !isCompleted && jobToDisplay.progress_number > 0;
                                             const expansionKey = `${agent}-${job.id}`;
                                             const isExpanded = expandedRestores[expansionKey];
                                             const jobHasFiles = hasFiles(agent, job.id);
@@ -669,8 +671,21 @@ const Restorepp = ({ searchQuery = '' }) => {
                                                     );
                                                 }
                                             } else {
-                                                displayProgressValue = 0;
+                                                // UNC/chunk-level: when we have file-level updates (counting + files),
+                                                // use file progress so the doughnut moves in real time like the status column
+                                                if (jobToDisplay.status === 'counting' && jobHasFiles) {
+                                                    const files = getJobFiles(agent, job.id);
+                                                    const maxFileProgress = files.length > 0
+                                                        ? Math.max(...files.map(f => Number(f.progress ?? 0)))
+                                                        : 0;
+                                                    displayProgressValue = Math.max(0, Math.min(100, maxFileProgress));
+                                                } else {
+                                                    displayProgressValue = Math.max(0, Math.min(100, Number(jobToDisplay.progress_number ?? 0)));
+                                                }
                                             }
+
+                                            // Status and icon should follow the same progress (so "Restoring" when bar > 0)
+                                            const isRestoring = !isFailed && !isCompleted && displayProgressValue > 0;
 
 
                                             return (
@@ -698,7 +713,7 @@ const Restorepp = ({ searchQuery = '' }) => {
                                                                 {/* <HardDrive className="w-6 h-6 text-blue-600" /> */}
                                                                 <div className="flex-1">
                                                                     <div className="flex items-center space-x-2 mb-1">
-                                                                        {getStatusIcon(jobToDisplay.progress_number, jobToDisplay.finished, jobToDisplay.status)}
+                                                                        {getStatusIcon(displayProgressValue, jobToDisplay.finished, jobToDisplay.status)}
                                                                         <h4 className="text-sm font-semibold text-gray-900">
                                                                             {jobToDisplay.name}
                                                                         </h4>
@@ -720,7 +735,7 @@ const Restorepp = ({ searchQuery = '' }) => {
                                                                     isRestoring ? 'text-blue-600' :
                                                                         jobToDisplay.status === 'failed' ? 'text-red-600' : 'text-gray-500'
                                                                     }`}>
-                                                                    {getStatusText(jobToDisplay.progress_number, jobToDisplay.finished, jobToDisplay.status)}
+                                                                    {getStatusText(displayProgressValue, jobToDisplay.finished, jobToDisplay.status)}
                                                                 </p>
                                                             </div>
                                                         </div>

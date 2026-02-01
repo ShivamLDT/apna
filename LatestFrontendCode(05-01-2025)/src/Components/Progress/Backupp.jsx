@@ -1101,7 +1101,7 @@ const Backupp = ({ searchQuery = '' }) => {
                                                                         <div className="flex items-center gap-3">
 
                                                                             <ProgressDoughnutChart
-                                                                                progress={jobToDisplay.progress_number}
+                                                                                progress={displayProgress}
                                                                                 isFinished={isCompleted}
                                                                                 isCounting={isCounting}
                                                                                 status={jobToDisplay.status}
