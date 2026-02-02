@@ -146,7 +146,7 @@ every_logs/
 # Backup/restore directories (contain user data)
 backup_dir/
 client_cache/
-downloads/
+
 C[[DRIVE]]/
 Restore_*/
 inetpub*/
