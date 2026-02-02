@@ -95,8 +95,32 @@ global cl
 #         return post_process_context(None, result, is_socket=True)
 #     return wrapper
 
+
+class _ThreadSafeSocketIOClient(socketio.Client):
+    """Wraps socketio.Client so connect/emit/disconnect are serialized.
+    Avoids engineio race that causes 'task_done() called too many times'."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._socket_lock = threading.RLock()
+
+    def connect(self, *args, **kwargs):
+        with self._socket_lock:
+            return super().connect(*args, **kwargs)
+
+    def disconnect(self, *args, **kwargs):
+        with self._socket_lock:
+            return super().disconnect(*args, **kwargs)
+
+    def emit(self, *args, **kwargs):
+        with self._socket_lock:
+            return super().emit(*args, **kwargs)
+
+
 r_cl = socketio.Client(reconnection=True,reconnection_attempts=60*60*10,reconnection_delay=20,reconnection_delay_max=20)
-cl_socketio_obj = socketio.Client(reconnection=True,reconnection_attempts=60*60*20,reconnection_delay=10,reconnection_delay_max=20)
+cl_socketio_obj = _ThreadSafeSocketIOClient(
+    reconnection=True, reconnection_attempts=60*60*20,
+    reconnection_delay=10, reconnection_delay_max=20
+)
 
 
 @cl_socketio_obj.on("connect")

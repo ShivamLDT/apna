@@ -23,7 +23,7 @@ import shutil
 from socket import create_connection
 import subprocess
 from sys import path
-from time import time
+from time import time, sleep
 from wsgiref import headers
 from xml.dom import WrongDocumentErr
 import zipfile
@@ -404,6 +404,10 @@ def restoretest():
         # tccn = os.path.sep.join(tccn[1:len(tcc)-2])
 
         tccn = os.path.sep.join(tccn[start_index:])
+        # If path is ...\filename\filename (folder named like file + file), treat as single file path
+        _parent = os.path.dirname(tccn)
+        if _parent and os.path.basename(_parent) == os.path.basename(tccn):
+            tccn = _parent
         res_h1.update({"tccn":tccn}) 
         log_event(
             logger,
@@ -432,12 +436,20 @@ def restoretest():
             file_id=obj,
             extra={"event": "restore_start"},
         )
-        if len(tccx) > 1:
-            os.makedirs(os.path.sep.join(tccx[tccx_start_index : len(tccx) - 1]), exist_ok=True)
-        else:
-            os.makedirs(os.path.sep.join(tccx[tccx_start_index:]), exist_ok=True)
+        # Build full tccx path (filter empty parts to avoid trailing-separator issues)
+        tccx_parts = [p for p in tccx[tccx_start_index:] if p]
+        tccx_full = os.path.sep.join(tccx_parts) if tccx_parts else ""
+        # Only create parent directory; never pass a file path to makedirs (WinError 183 when path is existing file)
+        if tccx_full:
+            tccx_parent = os.path.dirname(tccx_full)
+            if tccx_parent and tccx_parent != tccx_full:
+                try:
+                    os.makedirs(tccx_parent, exist_ok=True)
+                except FileExistsError:
+                    if not os.path.isdir(tccx_parent):
+                        raise
         # tccx (restore path) uses tccx_start_index so drive letter is preserved
-        tccx = os.path.sep.join(tccx[tccx_start_index:])       
+        tccx = tccx_full
         res_h1.update({"tccx":tccx}) 
         # responset = requests.post("http://"+request.remote_addr+":53335/data/download",headers={"id":id},stream=True)
 
@@ -446,6 +458,31 @@ def restoretest():
             os.makedirs(os.path.dirname(tccn), exist_ok=True)
         except:
             pass
+        # Pre-check: if target file already exists, ensure we can read it (e.g. not locked by sync/AV)
+        if os.path.exists(tccn) and os.path.isfile(tccn):
+            try:
+                with open(tccn, "rb") as _f:
+                    _f.read(1)
+            except (PermissionError, OSError) as _e:
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    job_id,
+                    "restore",
+                    file_path=tccn,
+                    file_id=obj,
+                    error_code="RESTORE_FILE_ACCESS",
+                    error_message=str(_e),
+                    extra={"event": "job_failed"},
+                )
+                return make_response(
+                    jsonify({
+                        "file": tccn,
+                        "restore": "failed",
+                        "reason": "Permission denied accessing file. Try: restore to a different folder (e.g. Desktop); allow this app in Windows Security (Controlled Folder Access); or add an antivirus/OneDrive exclusion.",
+                    }),
+                    500,
+                )
         # if other than UNC
         is_dycryption_done=False
         if (
@@ -792,10 +829,67 @@ def restoretest():
                 gc.collect()
                 expected_file_hash = str(chunk_manifest.get("file_hash", ""))
                 if expected_file_hash:
-                    file_hasher = hashlib.sha256()
-                    with open(tccn, "rb") as restored_file:
-                        for block in iter(lambda: restored_file.read(1024 * 1024), b""):
-                            file_hasher.update(block)
+                    open_err = None
+                    file_hasher = None
+                    # Brief delay so OS/AV can release the file handle after write
+                    sleep(2)
+                    for attempt in range(6):
+                        file_hasher = hashlib.sha256()
+                        try:
+                            with open(tccn, "rb") as restored_file:
+                                for block in iter(lambda: restored_file.read(1024 * 1024), b""):
+                                    file_hasher.update(block)
+                            open_err = None
+                            break
+                        except (PermissionError, OSError) as e:
+                            open_err = e
+                            if attempt < 5:
+                                sleep(2 + attempt * 2)
+                    if open_err is not None:
+                        # File was written; only re-read for hash failed (e.g. Documents/OneDrive/AV lock).
+                        is_permission = isinstance(open_err, PermissionError) or (
+                            getattr(open_err, "errno", None) == 13
+                        )
+                        if is_permission:
+                            log_event(
+                                logger,
+                                logging.WARNING,
+                                job_id,
+                                "restore",
+                                file_path=tccn,
+                                file_id=obj,
+                                error_code="RESTORE_VERIFY_SKIPPED",
+                                error_message=str(open_err),
+                                extra={"event": "restore_verify_skipped"},
+                            )
+                            return make_response(
+                                jsonify({
+                                    "file": tccn,
+                                    "restore": "success",
+                                    "reason": "",
+                                    "verification_skipped": True,
+                                }),
+                                200,
+                            )
+                        log_event(
+                            logger,
+                            logging.ERROR,
+                            job_id,
+                            "restore",
+                            file_path=tccn,
+                            file_id=obj,
+                            error_code="RESTORE_FILE_ACCESS",
+                            error_message=str(open_err),
+                            extra={"event": "job_failed"},
+                        )
+                        return make_response(
+                            jsonify({
+                                "file": tccn,
+                                "restore": "failed",
+                                "reason": "Permission denied reading restored file (often antivirus or Windows locking it). Try: restore to a different folder; allow this app in Windows Security; or add an antivirus/OneDrive exclusion.",
+                            }),
+                            500,
+                        )
                     actual_file_hash = file_hasher.hexdigest()
                     if actual_file_hash != expected_file_hash:
                         log_event(
@@ -1112,18 +1206,39 @@ def restoretest():
                     extracted_data = extracted_data.split(pattern)
                     extracted_data = deque(extracted_data) 
                     pZip= p7zstd(iv)
-                    with open(target_file_name, "ab") as ftarget:
-                        #for df in extracted_data:
-                        while extracted_data:
-                            df = extracted_data.popleft()
-                            if not df==b'':
-                                df= pattern+df
-                                decompressed_data= pZip.decompress(encrypted_data=df,file_name=tccn)
-                                ftarget.write(decompressed_data)
-                                ftarget.flush()
-                                restored_data +=decompressed_data 
-                            del df
-                            gc.collect()
+                    try:
+                        with open(target_file_name, "ab") as ftarget:
+                            #for df in extracted_data:
+                            while extracted_data:
+                                df = extracted_data.popleft()
+                                if not df==b'':
+                                    df= pattern+df
+                                    decompressed_data= pZip.decompress(encrypted_data=df,file_name=tccn)
+                                    ftarget.write(decompressed_data)
+                                    ftarget.flush()
+                                    restored_data +=decompressed_data 
+                                del df
+                                gc.collect()
+                    except (PermissionError, OSError) as write_err:
+                        log_event(
+                            logger,
+                            logging.ERROR,
+                            job_id,
+                            "restore",
+                            file_path=tccn,
+                            file_id=obj,
+                            error_code="RESTORE_FILE_ACCESS",
+                            error_message=str(write_err),
+                            extra={"event": "job_failed"},
+                        )
+                        return make_response(
+                            jsonify({
+                                "file": tccn,
+                                "restore": "failed",
+                                "reason": "Permission denied writing to this folder. Try: restore to a different folder (e.g. Desktop); allow this app in Windows Security (Controlled Folder Access); or add an antivirus/OneDrive exclusion.",
+                            }),
+                            500,
+                        )
                     del extracted_data
                     del pZip
 
@@ -1228,10 +1343,65 @@ def restoretest():
             
             expected_file_hash = str(chunk_manifest.get("file_hash", ""))
             if expected_file_hash:
-                file_hasher = hashlib.sha256()
-                with open(tccn, "rb") as restored_file:
-                    for block in iter(lambda: restored_file.read(1024 * 1024), b""):
-                        file_hasher.update(block)
+                open_err = None
+                file_hasher = None
+                sleep(2)
+                for attempt in range(6):
+                    file_hasher = hashlib.sha256()
+                    try:
+                        with open(tccn, "rb") as restored_file:
+                            for block in iter(lambda: restored_file.read(1024 * 1024), b""):
+                                file_hasher.update(block)
+                        open_err = None
+                        break
+                    except (PermissionError, OSError) as e:
+                        open_err = e
+                        if attempt < 5:
+                            sleep(2 + attempt * 2)
+                if open_err is not None:
+                    is_permission = isinstance(open_err, PermissionError) or (
+                        getattr(open_err, "errno", None) == 13
+                    )
+                    if is_permission:
+                        log_event(
+                            logger,
+                            logging.WARNING,
+                            job_id,
+                            "restore",
+                            file_path=tccn,
+                            file_id=obj,
+                            error_code="RESTORE_VERIFY_SKIPPED",
+                            error_message=str(open_err),
+                            extra={"event": "restore_verify_skipped"},
+                        )
+                        return make_response(
+                            jsonify({
+                                "file": tccn,
+                                "restore": "success",
+                                "reason": "",
+                                "verification_skipped": True,
+                            }),
+                            200,
+                        )
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        job_id,
+                        "restore",
+                        file_path=tccn,
+                        file_id=obj,
+                        error_code="RESTORE_FILE_ACCESS",
+                        error_message=str(open_err),
+                        extra={"event": "job_failed"},
+                    )
+                    return make_response(
+                        jsonify({
+                            "file": tccn,
+                            "restore": "failed",
+                            "reason": "Permission denied reading restored file (often antivirus or Windows locking it). Try: restore to a different folder; allow this app in Windows Security; or add an antivirus/OneDrive exclusion.",
+                        }),
+                        500,
+                    )
                 actual_file_hash = file_hasher.hexdigest()
                 if actual_file_hash != expected_file_hash:
                     log_event(
@@ -1813,13 +1983,21 @@ def restoretest2():
         # tccn = os.path.sep.join(tccn[1:len(tcc)-2])
 
         tccn = os.path.sep.join(tccn[1:])
+        _parent = os.path.dirname(tccn)
+        if _parent and os.path.basename(_parent) == os.path.basename(tccn):
+            tccn = _parent
         res_h1.update({"tccn":tccn}) 
-        if len(tccx) > 1:
-            os.makedirs(os.path.sep.join(tccx[tccx_start_index : len(tccx) - 1]), exist_ok=True)
-        else:
-            os.makedirs(os.path.sep.join(tccx[tccx_start_index:]), exist_ok=True)
-        # tccx (restore path) uses tccx_start_index so drive letter is preserved
-        tccx = os.path.sep.join(tccx[tccx_start_index:])       
+        tccx_parts = [p for p in tccx[tccx_start_index:] if p]
+        tccx_full = os.path.sep.join(tccx_parts) if tccx_parts else ""
+        if tccx_full:
+            tccx_parent = os.path.dirname(tccx_full)
+            if tccx_parent and tccx_parent != tccx_full:
+                try:
+                    os.makedirs(tccx_parent, exist_ok=True)
+                except FileExistsError:
+                    if not os.path.isdir(tccx_parent):
+                        raise
+        tccx = tccx_full
         res_h1.update({"tccx":tccx}) 
         # responset = requests.post("http://"+request.remote_addr+":53335/data/download",headers={"id":id},stream=True)
 

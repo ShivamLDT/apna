@@ -297,7 +297,13 @@ class OpenShFile:
         if not os.path.exists(self.original_file):
             raise FileNotFoundError(f"file not found (Flat): {self.original_file}")
             return
-        
+
+        # Directories cannot be opened with open() — causes [Errno 13] Permission denied on Windows.
+        # For folder backups we only need the path; each file is opened by path later.
+        if self.original_file.is_dir():
+            self.file_handle = None
+            return self.file_handle
+
         self.file_handle = open(
             self.original_file,
             mode=self.mode,
