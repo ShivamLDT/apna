@@ -16,7 +16,6 @@ import {
     ChevronRight,
     Folder,
     HardDrive,
-    RefreshCw,
     Cloud
 } from 'lucide-react';
 
@@ -62,20 +61,40 @@ function decryptData(encryptedData) {
     }
 }
 
+// Keep completed/failed jobs for 24h; always show in-progress jobs (avoids old backups cluttering UI)
+const JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
+const filterRecentBackupJobs = (jobs, animatedData, agent) => {
+    const now = Date.now();
+    return jobs.filter((job) => {
+        const displayJob = animatedData?.[agent]?.find((j) => String(j.id) === String(job.id)) || job;
+        const status = displayJob?.status;
+        const finished = displayJob?.finished;
+        const progress = Number(displayJob?.progress_number ?? 0);
+        const cloudProgress = Number(displayJob?.cloud_progress ?? 0);
+        const isInProgress = status === "initiating" || status === "counting" ||
+            (status !== "failed" && !finished && (progress < 100 || (displayJob?.cloud && cloudProgress < 100)));
+        if (isInProgress) return true;
+        const jobTime = job?.id ? (typeof job.id === "number" ? job.id * 1000 : parseFloat(job.id) * 1000) : 0;
+        return jobTime > 0 && (now - jobTime) < JOB_RETENTION_MS;
+    });
+};
+
 // FIXED: Updated ProgressDoughnutChart to handle both finished flag and progress >= 100
+// Progress bar now shows incremental % during counting and upload (no more 0→100 jump)
 const ProgressDoughnutChart = ({ progress, isFinished = false, isCounting = false, status }) => {
     const isFailed = status === "failed";
     let displayProgress;
 
     if (isCounting) {
-        displayProgress = 0; // Show 0% during counting phase
+        // Use actual progress during counting (e.g. file count or percentage)
+        displayProgress = Math.max(0, Math.min(100, progress || 0));
     } else if (isFailed) {
         displayProgress = 0;    // failed jobs show 0% red
-    } else if (isFinished || progress >= 100) {
+    } else if (isFinished || (progress != null && progress >= 100)) {
         displayProgress = 100;
     } else {
-        // For active jobs, clamp progress between 0-100 to handle negative values
-        displayProgress = Math.max(0, Math.min(100, progress || 0));
+        // For active jobs, clamp progress between 0-100; default to 0 when undefined/NaN
+        displayProgress = Math.max(0, Math.min(100, Number(progress) || 0));
     }
 
     // Determine if job is completed (finished flag OR progress >= 100)
@@ -316,14 +335,29 @@ const Backupp = ({ searchQuery = '' }) => {
     }, []);
 
     useEffect(() => {
-        // Load initial data from localStorage
+        // Load initial data from localStorage; prune old completed jobs to avoid clutter
         const storedAgentData = decryptData(localStorage.getItem("storedAgentDataa"));
         const storedAnimatedData = decryptData(localStorage.getItem("storedAnimatedDataa"));
         const storedJobFiles = decryptData(localStorage.getItem("storedJobFiles"));
 
-        const agentDataFromStorage = storedAgentData ? JSON.parse(storedAgentData) : {};
-        const animatedDataFromStorage = storedAnimatedData ? JSON.parse(storedAnimatedData) : {};
+        let agentDataFromStorage = storedAgentData ? JSON.parse(storedAgentData) : {};
+        let animatedDataFromStorage = storedAnimatedData ? JSON.parse(storedAnimatedData) : {};
         const jobFilesFromStorage = storedJobFiles ? JSON.parse(storedJobFiles) : {};
+
+        // Prune old completed/failed jobs per agent (keep last 24h)
+        Object.keys(agentDataFromStorage).forEach((agent) => {
+            agentDataFromStorage[agent] = filterRecentBackupJobs(agentDataFromStorage[agent] || [], animatedDataFromStorage, agent);
+            if (animatedDataFromStorage[agent]) {
+                const keptIds = new Set((agentDataFromStorage[agent] || []).map((j) => String(j.id)));
+                animatedDataFromStorage[agent] = (animatedDataFromStorage[agent] || []).filter((j) => keptIds.has(String(j.id)));
+            }
+        });
+        try {
+            localStorage.setItem("storedAgentDataa", encryptData(JSON.stringify(agentDataFromStorage)));
+            localStorage.setItem("storedAnimatedDataa", encryptData(JSON.stringify(animatedDataFromStorage)));
+        } catch (e) {
+            console.error("Failed to persist pruned backup data:", e);
+        }
 
         setAgentData(agentDataFromStorage);
         setAnimatedData(animatedDataFromStorage);
@@ -383,7 +417,7 @@ const Backupp = ({ searchQuery = '' }) => {
                             const newAgentData = { ...prev };
                             if (!newAgentData[agent]) newAgentData[agent] = [];
 
-                            const existingIndex = newAgentData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAgentData[agent].findIndex(j => String(j.id) === String(job.id));
                             if (existingIndex !== -1) {
                                 newAgentData[agent][existingIndex] = job;
                             } else {
@@ -400,7 +434,7 @@ const Backupp = ({ searchQuery = '' }) => {
                         setAnimatedData(prev => {
                             const newAnimatedData = { ...prev };
                             if (!newAnimatedData[agent]) newAnimatedData[agent] = [];
-                            const existingIndex = newAnimatedData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAnimatedData[agent].findIndex(j => String(j.id) === String(job.id));
                             const displayJob = {
                                 ...job,
                                 progress_number: job.progress_number ?? 0,
@@ -419,15 +453,16 @@ const Backupp = ({ searchQuery = '' }) => {
                             return newAnimatedData;
                         });
 
-                        // Handle file-level updates from "starting" event
+                        // Handle file-level updates from "starting" event (use String(job.id) for key)
                         if (job.filename && !job.cloud) {
                             setJobFiles(prev => {
                                 const newJobFiles = { ...prev };
                                 if (!newJobFiles[agent]) newJobFiles[agent] = {};
-                                if (!newJobFiles[agent][job.id]) newJobFiles[agent][job.id] = [];
+                                const jobKey = String(job.id);
+                                if (!newJobFiles[agent][jobKey]) newJobFiles[agent][jobKey] = [];
 
                                 const fileName = job.filename.split(/[\\/]/).pop();
-                                const existingFileIndex = newJobFiles[agent][job.id].findIndex(f => f.name === fileName);
+                                const existingFileIndex = newJobFiles[agent][jobKey].findIndex(f => f.name === fileName);
 
                                 // KEEP ORIGINAL: File-level logic unchanged
                                 const fileData = {
@@ -440,12 +475,12 @@ const Backupp = ({ searchQuery = '' }) => {
                                 };
 
                                 if (existingFileIndex !== -1) {
-                                    newJobFiles[agent][job.id][existingFileIndex] = {
-                                        ...newJobFiles[agent][job.id][existingFileIndex],
+                                    newJobFiles[agent][jobKey][existingFileIndex] = {
+                                        ...newJobFiles[agent][jobKey][existingFileIndex],
                                         ...fileData
                                     };
                                 } else {
-                                    newJobFiles[agent][job.id].push(fileData);
+                                    newJobFiles[agent][jobKey].push(fileData);
                                 }
                                 return newJobFiles;
                             });
@@ -480,7 +515,7 @@ const Backupp = ({ searchQuery = '' }) => {
                             const newAgentData = { ...prev };
                             if (!newAgentData[agent]) newAgentData[agent] = [];
 
-                            const existingIndex = newAgentData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAgentData[agent].findIndex(j => String(j.id) === String(job.id));
                             if (existingIndex !== -1) {
                                 newAgentData[agent][existingIndex] = job;
                             } else {
@@ -498,21 +533,27 @@ const Backupp = ({ searchQuery = '' }) => {
                             const newAnimatedData = { ...prev };
                             if (!newAnimatedData[agent]) newAnimatedData[agent] = [];
 
-                            const existingIndex = newAnimatedData[agent].findIndex(j => j.id === job.id);
+                            const existingIndex = newAnimatedData[agent].findIndex(j => String(j.id) === String(job.id));
                             const previousJob = existingIndex !== -1 ? newAnimatedData[agent][existingIndex] : null;
 
                             // 🔥 FIX: Define isFileLevel before using it
                             const isOverallLevel = job.progress_number !== undefined && !job.progress_number_file && !job.progress_number_upload;
                             const isFileLevel = job.progress_number_file !== undefined;
                             const isCloudLevel = job.progress_number_upload !== undefined;
+                            // Use progress_number when provided (incl. file-level updates) for incremental bar
+                            const hasOverallProgress = job.progress_number !== undefined && !isNaN(parseFloat(job.progress_number));
 
-
+                            const cloudProgressForCompletion = isCloudLevel
+                                ? (job.progress_number_upload ?? 0)
+                                : (previousJob?.cloud_progress ?? 100);
+                            const isCloudUploadDone = !job.cloud || cloudProgressForCompletion >= 100;
                             const isJobCompleted =
                                 !isFileLevel &&
                                 job.status !== "failed" &&
+                                isCloudUploadDone &&
                                 (
                                     job.finished === true ||
-                                    (job.progress_number >= 100 && job.status !== "failed")
+                                    (job.progress_number != null && job.progress_number >= 100)
                                 );
                             const isCloud = !!job.cloud;
 
@@ -538,10 +579,12 @@ const Backupp = ({ searchQuery = '' }) => {
 
                                 progress_number_original: job.progress_number,
 
-                                // Legacy usage but safe
-                                progress_number: isOverallLevel
-                                    ? Math.max(0, Math.min(100, job.progress_number || 0))
-                                    : previousJob?.progress_number || 0,
+                                // Use progress_number when provided for incremental bar; else keep previous
+                                progress_number: hasOverallProgress
+                                    ? Math.max(0, Math.min(100, parseFloat(job.progress_number)))
+                                    : (isOverallLevel
+                                        ? Math.max(0, Math.min(100, job.progress_number || 0))
+                                        : previousJob?.progress_number || 0),
 
                                 progress_number_file: isFileLevel
                                     ? Math.max(0, Math.min(100, job.progress_number_file || 0))
@@ -554,8 +597,12 @@ const Backupp = ({ searchQuery = '' }) => {
 
 
                                 // When server/client reports failed, do not show as completed (avoids 100% + green)
-                                finished: job.status === "failed" ? false : (job.finished === true || job.progress_number >= 100),
-                                accuracy: job.accuracy || 100,
+                            // RCA: When cloud upload in progress (cloud_progress < 100), job is NOT finished even if staging progress_number=100
+                                finished: job.status === "failed" ? false
+                                    : (isCloudLevel && (job.progress_number_upload ?? 0) < 100) ? false
+                                    : (isCloud && (previousJob?.cloud_progress ?? 0) < 100) ? false
+                                    : (job.finished === true || (job.progress_number != null && job.progress_number >= 100)),
+                                accuracy: job.accuracy ?? 0,
                                 Jname: job.name
                             };
 
@@ -614,15 +661,16 @@ const Backupp = ({ searchQuery = '' }) => {
 
 
 
-                        // Handle file-level updates only when filename is present
+                        // Handle file-level updates only when filename is present (use String(job.id) for key)
                         if (job.filename && !job.cloud) {
                             setJobFiles(prev => {
                                 const newJobFiles = { ...prev };
                                 if (!newJobFiles[agent]) newJobFiles[agent] = {};
-                                if (!newJobFiles[agent][job.id]) newJobFiles[agent][job.id] = [];
+                                const jobKey = String(job.id);
+                                if (!newJobFiles[agent][jobKey]) newJobFiles[agent][jobKey] = [];
 
                                 const fileName = job.filename.split(/[\\/]/).pop();
-                                const existingFileIndex = newJobFiles[agent][job.id].findIndex(f => f.name === fileName);
+                                const existingFileIndex = newJobFiles[agent][jobKey].findIndex(f => f.name === fileName);
 
                                 // KEEP ORIGINAL: File-level logic unchanged
                                 const fileData = {
@@ -635,12 +683,12 @@ const Backupp = ({ searchQuery = '' }) => {
                                 };
 
                                 if (existingFileIndex !== -1) {
-                                    newJobFiles[agent][job.id][existingFileIndex] = {
-                                        ...newJobFiles[agent][job.id][existingFileIndex],
+                                    newJobFiles[agent][jobKey][existingFileIndex] = {
+                                        ...newJobFiles[agent][jobKey][existingFileIndex],
                                         ...fileData
                                     };
                                 } else {
-                                    newJobFiles[agent][job.id].push(fileData);
+                                    newJobFiles[agent][jobKey].push(fileData);
                                 }
 
                                 localStorage.setItem("storedJobFiles", encryptData(JSON.stringify(newJobFiles)));
@@ -663,56 +711,43 @@ const Backupp = ({ searchQuery = '' }) => {
         }
     }, []);
 
-    // FIXED: Updated getStatusIcon to prioritize finished flag; failed never shows as completed
+    // Same icon style as UNC: percentage/doughnut only, no spinning; Upload when in progress
     const getStatusIcon = (job) => {
         const isFailed = job.status === "failed";
-        const isInitiating = job.status === "initiating";
         const isCounting = job.status === "counting";
-        const isCompleted = !isCounting && job.status !== "failed" && (job.finished === true || job.progress_number >= 100);
-        const isUploading = !isCounting && !isCompleted && job.progress_number > 0;
+        const cloudProgress = Number(job?.cloud_progress ?? 0);
+        const isCloudUploadInProgress = !!job?.cloud && cloudProgress < 100;
+        const isCompleted = !isCounting && job.status !== "failed" && !isCloudUploadInProgress && (job.finished === true || (job.progress_number != null && job.progress_number >= 100));
+        const isUploading = !isCounting && !isCompleted && (job.progress_number > 0 || (job?.cloud && cloudProgress > 0));
 
-        // if (isInitiating) {
-        //     return (
-        //         <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-        //     );
-        // }
-        if (isFailed) {
-            return <XCircle className="w-5 h-5 text-red-500" />;
-        }
-        if (isCompleted) {
-            return <CheckCircle className="w-5 h-5 text-green-500" />;
-        }
-        if (isUploading) {
-            return <Upload className="w-5 h-5 text-blue-500 animate-ping" />;
-        }
-        if (isCounting) {
-            return <Clock className="w-5 h-5 text-gray-400" />;
-        }
-
+        if (isFailed) return <XCircle className="w-5 h-5 text-red-500" />;
+        if (isCompleted) return <CheckCircle className="w-5 h-5 text-green-500" />;
+        if (isUploading) return <Upload className="w-5 h-5 text-blue-500" />;
+        if (isCounting) return <Clock className="w-5 h-5 text-gray-400" />;
         return <Clock className="w-5 h-5 text-gray-400" />;
     };
 
 
-    // FIXED: Updated getStatusText to prioritize finished flag; failed never shows as completed
-    const getStatusText = (job) => {
-        const isInitiating = job.status === "initiating";
+    // Match UNC style: always show percentage as status text (no "Initiating..." spinner text)
+    const getStatusText = (job, displayProgress = 0) => {
         const isCounting = job.status === "counting";
-        const isCompleted = job.status !== "failed" && (job.finished === true || job.progress_number >= 100);
-        const isUploading = !isCounting && !isCompleted && job.progress_number > 0;
+        const cloudProgress = Number(job?.cloud_progress ?? 0);
+        const isCloudUploadInProgress = !!job?.cloud && cloudProgress < 100;
+        const isCompleted = job.status !== "failed" && !isCloudUploadInProgress && (job.finished === true || (job.progress_number != null && job.progress_number >= 100));
+        const isUploading = !isCounting && !isCompleted && (job.progress_number > 0 || (job.cloud && cloudProgress > 0));
 
         const isLAN = job.repo === "LAN" || job.repo === "UNC";
+        const pct = Math.round(displayProgress);
 
         if (job.status === "failed") return "Failed";
-        if (isInitiating) return "Initiating...";
         if (isCounting) return "Counting Files";
         if (isCompleted) {
-            return isLAN ? "Completed" : "Staging Complete";
+            return `${pct}% ${isLAN ? "Completed" : "Staging Complete"}`;
         }
-
         if (isUploading) {
-            return isLAN ? "Processing" : "Staging";
+            return (job.cloud && cloudProgress > 0) ? `${pct}% Cloud Upload` : `${pct}% ${isLAN ? "Processing" : "Staging"}`;
         }
-        return "Pending";
+        return pct > 0 ? `${pct}%` : "Pending";
     };
 
 
@@ -732,14 +767,16 @@ const Backupp = ({ searchQuery = '' }) => {
         }
     };
 
-    // Check if job has files
+    // Check if job has files (use String(jobId) so 123 and "123" match)
     const hasFiles = (agent, jobId) => {
-        return jobFiles[agent] && jobFiles[agent][jobId] && jobFiles[agent][jobId].length > 0;
+        const key = String(jobId);
+        return jobFiles[agent] && jobFiles[agent][key] && jobFiles[agent][key].length > 0;
     };
 
     // Get files for a job with proper sorting
     const getJobFiles = (agent, jobId) => {
-        const files = (jobFiles[agent] && jobFiles[agent][jobId]) || [];
+        const key = String(jobId);
+        const files = (jobFiles[agent] && jobFiles[agent][key]) || [];
 
         return files.sort((a, b) => {
             const statusOrder = { uploading: 0, pending: 1, failed: 2, completed: 3 };
@@ -936,7 +973,7 @@ const Backupp = ({ searchQuery = '' }) => {
                     Object.keys(agentData)
                         .filter(agent => agent.toLowerCase().includes(searchQuery.toLowerCase()))
                         .map(agent => {
-                            const mainJobs = (agentData[agent] || [])
+                            const mainJobs = filterRecentBackupJobs(agentData[agent] || [], animatedData, agent)
                                 .sort((a, b) => b.scheduled_time?.localeCompare(a.scheduled_time));
 
                             const isOffline = ips.some(item => item.agent === agent && item.lastConnected !== "True");
@@ -1017,31 +1054,45 @@ const Backupp = ({ searchQuery = '' }) => {
                                     <div className="overflow-auto bgMaxH">
                                         {mainJobs.length > 0 ? (
                                             mainJobs.map((job) => {
-                                                // Use animatedData for display with fallback to original job
-                                                // const jobToDisplay = animatedData[agent]?.find(aJob => aJob.id === job.id) || job;
+                                                // Use animatedData for display with fallback to original job (match id as string so 123 === "123")
                                                 const jobToDisplay =
-                                                    animatedData[agent]?.find(aJob => aJob.id === job.id)
+                                                    animatedData[agent]?.find(aJob => String(aJob.id) === String(job.id))
                                                     || job;
 
 
                                                 const isCounting = jobToDisplay.status === "counting";
-                                                // FIXED: Use both finished flag and progress >= 100; failed never counts as completed
-                                                const isCompleted = jobToDisplay.status !== "failed" && (jobToDisplay.finished === true || jobToDisplay.progress_number >= 100);
-                                                const isUploading = !isCounting && !isCompleted && jobToDisplay.progress_number > 0;
+                                                const isFailed = jobToDisplay.status === "failed";
+                                                const cloudProgress = Number(jobToDisplay?.cloud_progress ?? 0);
+                                                const isCloudUploadInProgress = !!jobToDisplay?.cloud && cloudProgress < 100;
+                                                // RCA: Job not completed when cloud upload in progress - staging 100% but cloud 50% should show 50%
+                                                const isCompleted = jobToDisplay.status !== "failed" &&
+                                                    !isCloudUploadInProgress &&
+                                                    (jobToDisplay.finished === true || (jobToDisplay.progress_number != null && jobToDisplay.progress_number >= 100));
                                                 const expansionKey = `${agent}-${job.id}`;
                                                 const isExpanded = expandedBackups[expansionKey];
                                                 const jobHasFiles = hasFiles(agent, job.id);
-                                                const isInitiating = jobToDisplay.status === "initiating";
-                                                // FIXED: Display logic for progress text - show 100% if completed
-                                                const isFailed = jobToDisplay.status === "failed";
+
+                                                // RCA: All progress from socket - when cloud upload in progress, use cloud_progress; for UNC use file-level when < 100%
+                                                const files = jobHasFiles ? getJobFiles(agent, job.id) : [];
+                                                const maxFileProgress = files.length > 0 ? Math.max(...files.map(f => Number(f.progress ?? 0))) : 0;
+                                                const jobProgress = Number(jobToDisplay?.progress_number ?? job?.progress_number ?? 0);
+                                                const fileLevelProgress = Number(jobToDisplay?.progress_number_file ?? job?.progress_number_file ?? 0);
+                                                const isUNC = jobToDisplay?.repo === "UNC";
+                                                const fileLevelIndicatesInProgress = (jobHasFiles && maxFileProgress < 100) || (fileLevelProgress > 0 && fileLevelProgress < 100);
+                                                const statusProgressValue = isCloudUploadInProgress
+                                                    ? cloudProgress
+                                                    : (isUNC && fileLevelIndicatesInProgress)
+                                                        ? Math.max(maxFileProgress, fileLevelProgress, jobProgress < 100 ? jobProgress : 0)
+                                                        : Math.max(maxFileProgress, fileLevelProgress, jobProgress);
 
                                                 const displayProgress =
                                                     isFailed
                                                         ? 0
                                                         : isCompleted
                                                             ? 100
-                                                            : Math.max(0, Math.min(100, jobToDisplay.progress_number || 0));
+                                                            : Math.max(0, Math.min(100, Number(statusProgressValue) || 0));
 
+                                                const isUploading = !isCounting && !isCompleted && displayProgress > 0;
 
                                                 return (
                                                     <div key={job.id} className="border border-gray-200 overflow-hidden">
@@ -1093,23 +1144,15 @@ const Backupp = ({ searchQuery = '' }) => {
                                                                 </div>
 
                                                                 <div className="text-right flex items-center space-x-1">
-                                                                    {isInitiating ? (
-                                                                        <div className="text-center space-y-4">
-                                                                            <RefreshCw className="w-8 h-8 text-blue-600 mx-auto animate-spin" />
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div className="flex items-center gap-3">
-
-                                                                            <ProgressDoughnutChart
-                                                                                progress={displayProgress}
-                                                                                isFinished={isCompleted}
-                                                                                isCounting={isCounting}
-                                                                                status={jobToDisplay.status}
-                                                                            />
-                                                                        </div>
-
-
-                                                                    )}
+                                                                    {/* RCA: Always show progress % from socket - no spinner, sync with socket data */}
+                                                                    <div className="flex items-center gap-3">
+                                                                        <ProgressDoughnutChart
+                                                                            progress={displayProgress}
+                                                                            isFinished={isCompleted}
+                                                                            isCounting={isCounting}
+                                                                            status={jobToDisplay.status}
+                                                                        />
+                                                                    </div>
 
                                                                     <p className={`text-xs 
                                                                         ${jobToDisplay.status === "failed"
@@ -1123,7 +1166,7 @@ const Backupp = ({ searchQuery = '' }) => {
                                                                                         : 'text-gray-500'
                                                                         }
 `}>
-                                                                        {getStatusText(jobToDisplay)}
+                                                                        {getStatusText(jobToDisplay, displayProgress)}
 
                                                                     </p>
 

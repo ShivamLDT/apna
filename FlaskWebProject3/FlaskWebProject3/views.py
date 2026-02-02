@@ -2319,15 +2319,18 @@ def backupprofilescreate():
                             # if not os.path.exists(
                             #     os.path.join(app.config["location"], f"{c}.db")
                             # ):
+                            # Capture values before thread (request context is lost in thread)
+                            url_root = request.url_root
+                            db_path = os.path.join(
+                                app.config["location"], f"{c}.db"
+                            )
+                            def create_db_task():
+                                requests.post(
+                                    url_root + "create_database",
+                                    json={"database_name": db_path},
+                                )
                             threading.Thread(
-                                target=lambda: requests.post(
-                                    request.url_root + "create_database",
-                                    json={
-                                        "database_name": os.path.join(
-                                            app.config["location"], f"{c}.db"
-                                        )
-                                    },
-                                ),
+                                target=create_db_task,
                                 daemon=True,
                             ).start()
 
@@ -5078,6 +5081,7 @@ def upload_file():
                         givn=givn,
                         tccsrc=tccsrc,bNoBackup=bNoBackup,fidi=fidi,tfi=tfi,bGD_backup=bGDBackup,bOneDrive_backup=bOneDrive_backup,bAWS_backup=bAWS_backup,bAZURE_backup=bAZURE_backup, stat=stat, file_id=file_id,
                         gfidi_from_headers=request.headers.get("gfidi") if bGDBackup else None,
+                        chunk_index=seq_num,
                     )
                     log_event(
                         logger,
@@ -5579,6 +5583,7 @@ def save_final(
     stat = None,
     backup_logs_id=0.0, file_id = None,
     gfidi_from_headers=None,
+    chunk_index=None,
 ):
     import gzip
     import os
@@ -5622,6 +5627,7 @@ def save_final(
                     mode_m="uploading", status_m="pending", mode_t="saving",
                     givn=givn, gidn=gidn, backup_logs_id=backup_logs_id, bdone=True,
                     tccsrc=tccsrc, fidi=fidi, size_data=size_val, file_id=file_id,
+                    chunk_index=chunk_index,
                 )
                 return True, None
             except Exception as e:
@@ -7850,7 +7856,8 @@ def save_savelogdata(
     gidn=None,
     backup_logs_id=unique_time_float(),
     bdone=True,
-    tccsrc="",fidi="",xsum_done=0,isMetaFile=False,size_data=0, file_id=None
+    tccsrc="",fidi="",xsum_done=0,isMetaFile=False,size_data=0, file_id=None,
+    chunk_index=None,
 ):
 
     import gzip
@@ -7952,6 +7959,38 @@ def save_savelogdata(
                     _gidn_list = [gidn]
                 elif gidn is not None:
                     _gidn_list = [gidn]
+                # GDrive multi-chunk: merge this chunk's gidn into gidn_list by chunk_index (1-based) so we don't overwrite previous chunks
+                if rep_upper in ["GDRIVE", "GOOGLEDRIVE"] and gidn is not None and not isinstance(gidn, list) and int(total_chunks or 0) > 1 and chunk_index is not None:
+                    idx = int(chunk_index) - 1  # 1-based to 0-based
+                    if 0 <= idx < int(total_chunks):
+                        try:
+                            q_existing = ("SELECT data_repod FROM backups_M WHERE id = " + str(float(j_sta)))
+                            qrs_ex = [(dbname, [q_existing])]
+                            res_ex = xession.execute_queries(qrs_ex)
+                            db_res = res_ex.get(dbname, [])
+                            if db_res and db_res[0][0] == "Success" and db_res[0][1]:
+                                row = db_res[0][1][0]
+                                existing_repod = (row[0] or "") if row else ""
+                                if existing_repod:
+                                    existing = json.loads(existing_repod) if isinstance(existing_repod, str) else existing_repod
+                                    existing_list = existing.get("gidn_list")
+                                    if isinstance(existing_list, list) and len(existing_list) <= int(total_chunks):
+                                        _gidn_list = existing_list
+                                        while len(_gidn_list) < int(total_chunks):
+                                            _gidn_list.append(None)
+                                        _gidn_list[idx] = gidn
+                                    else:
+                                        _gidn_list = [None] * int(total_chunks)
+                                        _gidn_list[idx] = gidn
+                                else:
+                                    _gidn_list = [None] * int(total_chunks)
+                                    _gidn_list[idx] = gidn
+                            else:
+                                _gidn_list = [None] * int(total_chunks)
+                                _gidn_list[idx] = gidn
+                        except Exception as merge_err:
+                            logger.warning(f"GDrive gidn_list merge failed, using single: {merge_err}")
+                            _gidn_list = [gidn]
                 _data_repod_obj = {
                     "gidn": gidn,
                     "givn": givn,
@@ -9194,7 +9233,8 @@ def get_restore_data():
                                 disk_manifest = json.load(manifest_file)
                             if disk_manifest.get("total_chunks"):
                                 manifest_data["total_chunks"] = disk_manifest.get("total_chunks")
-                            if disk_manifest.get("chunks"):
+                            # GDrive/AWS/Azure/OneDrive: do not use disk manifest chunk hashes - chunks live in cloud and disk manifest may be from a different backup, causing CHECKSUM_MISMATCH on restore
+                            if not (is_gdrive_restore or is_aws_azure_onedrive_restore) and disk_manifest.get("chunks"):
                                 manifest_data["chunks"] = disk_manifest.get("chunks")
                             if disk_manifest.get("file_hash"):
                                 manifest_data["file_hash"] = disk_manifest.get("file_hash")
@@ -9240,7 +9280,8 @@ def get_restore_data():
                                     temp_manifest = json.load(manifest_file)
                                 if temp_manifest.get("total_chunks"):
                                     manifest_data["total_chunks"] = temp_manifest.get("total_chunks")
-                                if temp_manifest.get("chunks"):
+                                # GDrive/AWS/Azure/OneDrive: keep empty chunk hashes so client skips per-chunk checksum (disk manifest hashes may not match cloud chunks)
+                                if not (is_gdrive_restore or is_aws_azure_onedrive_restore) and temp_manifest.get("chunks"):
                                     manifest_data["chunks"] = temp_manifest.get("chunks")
                                 if temp_manifest.get("file_hash"):
                                     manifest_data["file_hash"] = temp_manifest.get("file_hash")
@@ -9365,7 +9406,12 @@ def get_restore_data():
                     if original_p.startswith(os.sep):
                         original_p="".join(original_p.split(os.sep)[0:])
                     RestoreLocation = os.path.join(RestoreLocation,original_p)
-                
+                # Use RestoreLocation (path user set in frontend, e.g. Downloads) as the restore destination.
+                restore_destination = (RestoreLocation if (RestoreLocation and str(RestoreLocation).strip()) else targetLocation)
+                file_basename = os.path.basename(full_name) if full_name else ""
+                if mime_type == "file" and full_name and file_basename and (not restore_destination.rstrip(os.sep).endswith(file_basename)):
+                    restore_destination = os.path.join(restore_destination.rstrip(os.sep), file_basename)
+
                 #if conn:
                 try:
                     sbd=str(uid)   #SMB id
@@ -9373,16 +9419,17 @@ def get_restore_data():
                     #print("conn succeed")
                 except:
                     pass
-                # For UNC, use RestoreLocation directly (the complex _tcc_value replacement doesn't work)
-                # For other storage types, use the replacement logic
-                if str(selectedStorageType).upper() == "UNC":
-                    # UNC: Use restore location directly with {{DRIVE}} placeholder
-                    _tccx_value = str(RestoreLocation).replace(":", "{{DRIVE}}")
-                    _tccn_value = str(RestoreLocation).replace(":", "{{DRIVE}}")
+                # For file restores, send a single path (restore_destination) so the client writes one file,
+                # not path\filename (which would create a folder named like the file and a .bin inside).
+                # For UNC, use restore_destination directly (the complex _tcc_value replacement doesn't work).
+                _restore_norm = str(restore_destination).replace(":", "{{DRIVE}}")
+                if mime_type == "file" or str(selectedStorageType).upper() == "UNC":
+                    _tccx_value = _restore_norm
+                    _tccn_value = _restore_norm
                 else:
                     _tccx_value = _tcc_value.replace(
                         _rec_fpath.replace(":", "{{DRIVE}}"),
-                        str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
+                        str(restore_destination+"\\").replace(":", "{{DRIVE}}"),
                     ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else '')
                     _tccn_value = _tccx_value  # Same transformation
                 
@@ -9454,7 +9501,7 @@ def get_restore_data():
                             os.path.join(
                                 str(rec_dict.get("from_path", "")).replace(
                                     _rec_fpath.replace(":", "{{DRIVE}}"),
-                                    str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
+                                    str(restore_destination+"\\").replace(":", "{{DRIVE}}"),
                                 ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else ''),
                                 str(rec_dict.get("file_name", "")),
                             ).encode("UTF-8"),
@@ -9464,7 +9511,7 @@ def get_restore_data():
                     ),
                     "tccnna": base64.b64encode(
                         gzip.compress(
-                            str(RestoreLocation.replace(":", "{{DRIVE}}"),
+                            str(restore_destination.replace(":", "{{DRIVE}}"),
                                 ).encode("UTF-8"),
                             9,
                             mtime=time.time(),
@@ -9472,7 +9519,7 @@ def get_restore_data():
                     ),
                     "tccnrest": base64.b64encode(
                         gzip.compress(
-                            str(RestoreLocation.replace(":", "{{DRIVE}}")).encode("UTF-8"),
+                            str(restore_destination.replace(":", "{{DRIVE}}")).encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
@@ -9485,10 +9532,11 @@ def get_restore_data():
                         )
                     ),
                 }
-                if mime_type == "file":                    
+                if mime_type == "file":
+                    # Send single-file path so client writes one file, not folder + .bin
                     header.update({"tccn": base64.b64encode(
                         gzip.compress(
-                            str( os.path.join( "X" + os.path.sep + RestoreLocation)).encode("UTF-8"),
+                            _tccn_value.encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         ))})
@@ -11011,6 +11059,24 @@ def restore_nodes():
                         "ipAddress": _normalize_ip_url(e.get("idx")),
                         "lastConnected": "False",
                         "lastConnectedTime": ""
+                    })
+ 
+        # If no endpoints from job records, show all activated agents (same as Endpoints page)
+        # so Restore page can list agents and user can select one (restore points may be empty until backups exist)
+        if not endpoints:
+            for e in app.config["agent_activation_keys"]:
+                x = search_clientnodes_x_nodes(e)
+                if x:
+                    ip_raw = str(x.get("ipAddress") or "")
+                    is_online = is_less_than_2_minutes(ip_raw) if ip_raw else False
+                    ip_addr = _normalize_ip_url(ip_raw)
+                    endpoints.append({
+                        "idx": x["key"],
+                        "agent": x["agent"],
+                        "ipAddress": ip_addr,
+                        "ip": x.get("ip", ""),
+                        "lastConnected": str(is_online),
+                        "lastConnectedTime": x.get("lastConnectedTime", "")
                     })
  
         return jsonify({"result": endpoints}), 200

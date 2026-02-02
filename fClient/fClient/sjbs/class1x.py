@@ -1130,6 +1130,20 @@ def create_localbkp_job(
         
     except Exception as errr_bkp:
          ##kartik
+        # Log setup-phase failures to structured_events.log (Permission denied, etc.)
+        try:
+            log_event(
+                logger,
+                logging.WARNING,
+                job_Start,
+                "backup",
+                file_path=src_folder,
+                error_code="JOB_SETUP_FAILED",
+                error_message=str(errr_bkp),
+                extra={"event": "job_failed"},
+            )
+        except Exception:
+            pass
 
         try:
             print("\n\n----- WEBSOCKET EMIT START -----")

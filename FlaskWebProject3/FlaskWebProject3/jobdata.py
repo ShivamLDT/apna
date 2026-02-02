@@ -1,17 +1,23 @@
 import gzip
 import json
+import os
 import sqlite3
 from typing import List, Dict, Any
 from datetime import datetime, timezone, timedelta
 
 from flask import jsonify
 
-from fingerprint import getCode
 class JobsRecordManager:
-    def __init__(self, db_name: str, json_file: str,app: object):
-        self.db_name = str(app.config.get("getCode",None))
+    def __init__(self, db_name: str, json_file: str, app: object):
+        # Use db_name with location for full path (e.g. {client_key}.db)
+        location = app.config.get("location", ".")
+        self.db_name = os.path.join(location, db_name) if not os.path.isabs(db_name) else db_name
         self.json_file = json_file
         self.records = []
+        # Ensure parent directory exists before connecting
+        db_dir = os.path.dirname(self.db_name)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         # Create database connection and table if it doesn't exist
         self.conn = sqlite3.connect(self.db_name)
         ##kartik
@@ -119,6 +125,24 @@ class JobsRecordManager:
         dt = datetime.fromisoformat(next_run_time_str.replace("Z", "+00:00"))
         ist_dt = dt.astimezone(timezone(timedelta(hours=5, minutes=30)))
         return ist_dt.strftime('%d-%m-%Y %H:%M:%S %z')
+    def get_top_n_grouped_records(self, n: int = 10) -> List[Dict]:
+        """Return top n records grouped by agent, name, next_run_time."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"SELECT agent, name, MAX(created_at) AS latest_created_at, next_run_time "
+            f"FROM jobs_recordManager GROUP BY agent, name, next_run_time "
+            f"ORDER BY latest_created_at DESC LIMIT {n}"
+        )
+        rows = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
+        results = []
+        for row in rows:
+            record = dict(zip(columns, row))
+            record['latest_created_at'] = self.format_epoch_to_ist(record['latest_created_at'])
+            record['next_run_time'] = self.format_next_run_time(record['next_run_time'])
+            results.append(record)
+        return results
+
     def fetch_jobs_as_json(self,n=10):
         cursor =self.conn.cursor()
         cursor.execute(f"SELECT agent,name, MAX(created_at) AS latest_created_at, next_run_time  FROM jobs_recordManager GROUP BY agent, name, next_run_time  ORDER BY latest_created_at DESC LIMIT {str(n)}")

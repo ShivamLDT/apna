@@ -720,9 +720,10 @@ const Restore = () => {
             });
 
             const data = response.data;
+            const rawList = Array.isArray(data?.result) ? data.result : [];
 
             // Sort the fetched data alphabetically by 'agent' field
-            const sortedData = data.result.sort((a, b) => {
+            const sortedData = rawList.sort((a, b) => {
                 if (a.agent.toLowerCase() < b.agent.toLowerCase()) return -1;
                 if (a.agent.toLowerCase() > b.agent.toLowerCase()) return 1;
                 return 0;

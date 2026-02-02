@@ -35,7 +35,7 @@ import EventLogs from './Components/Reports/Logs/EventLogs';
 import TaskLogs from './Components/Reports/Logs/TaskLogs';
 import AppProviders from "./Context/AppProviders";
 import { ensureSession } from './axiosinstance';
-import useInactivityLogout from "./useInactivityLogout";
+// import useInactivityLogout from "./useInactivityLogout";
 import InactivityWarningModal from './InactivityWarningModal';
 
 function App() {
@@ -350,14 +350,15 @@ function AppRoutes() {
   return <Layout>{routesContent}</Layout>;
 }
 function AuthenticatedApp() {
-  const { showWarning, secondsLeft } = useInactivityLogout();
+  // const { showWarning, secondsLeft } = useInactivityLogout();
 
   return (
     <>
       <AppRoutes />
-      {showWarning && (
-        <InactivityWarningModal secondsLeft={secondsLeft} />
-      )}
+       {/* {showWarning && (
+           <InactivityWarningModal secondsLeft={secondsLeft} />
+         )} */}
+      
     </>
   );
 }

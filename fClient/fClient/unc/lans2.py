@@ -374,6 +374,7 @@ class EncryptedFileSystem:
             file_path=file_path,
             per=0,
             file_id=kwargs["kwargs"]["backup_status_template"],
+            job_kwargs=kwargs.get("kwargs", {}),
         )
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         from cryptography.hazmat.backends import default_backend
@@ -603,6 +604,7 @@ class EncryptedFileSystem:
                         file_path=file_path,
                         per=100 * ((chunk_num + 1) / total_chunks),
                         file_id=kwargs["kwargs"]["backup_status_template"],
+                        job_kwargs=kwargs.get("kwargs", {}),
                     )
 
                     del chunk_path
@@ -663,6 +665,7 @@ class EncryptedFileSystem:
             file_path=file_path,
             per=0,
             file_id=kwargs["kwargs"]["backup_status_template"],
+            job_kwargs=kwargs.get("kwargs", {}),
         )
         # from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         # from cryptography.hazmat.backends import default_backend
@@ -893,6 +896,7 @@ class EncryptedFileSystem:
                         file_path=file_path,
                         per=100 * ((chunk_num + 1) / total_chunks),
                         file_id=kwargs["kwargs"]["backup_status_template"],
+                        job_kwargs=kwargs.get("kwargs", {}),
                     )
 
                     del chunk_path
