@@ -46,8 +46,23 @@ function decryptData(encryptedData) {
     }
 }
 
+// Keep completed/failed restore jobs for 24h; always show in-progress jobs
+const JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
+const filterRecentRestoreJobs = (jobs, animatedData, agent) => {
+    const now = Date.now();
+    return jobs.filter((job) => {
+        const displayJob = animatedData?.[agent]?.find((j) => String(j.id) === String(job.id)) || job;
+        const status = displayJob?.status;
+        const finished = displayJob?.finished;
+        const isInProgress = status === "counting" || (!finished && status !== "completed" && status !== "failed");
+        if (isInProgress) return true;
+        const jobTime = job?.id ? (typeof job.id === "number" ? job.id * 1000 : parseFloat(job.id) * 1000) : 0;
+        return jobTime > 0 && (now - jobTime) < JOB_RETENTION_MS;
+    });
+};
+
 const ProgressDoughnutChart = ({ progress, status }) => {
-    const clampedProgress = Math.min(100, Math.max(0, parseFloat(Number(progress).toFixed(0))));
+    const clampedProgress = Math.min(100, Math.max(0, parseFloat(Number(progress).toFixed(0)) || 0));
     const isFailed = status === "failed";
     const data = {
         labels: ['Remaining', 'Completed'],
@@ -98,8 +113,7 @@ const ProgressDoughnutChart = ({ progress, status }) => {
 
 
 const AccuracyProgress = ({ accuracy }) => {
-    const safe = accuracy;
-    // const safe = Math.min(100, Math.max(0, parseFloat(Number(accuracy).toFixed(0))))
+    const safe = Math.max(0, Math.min(100, Number(accuracy) || 0));
 
     return (
         <div className="w-full">
@@ -189,15 +203,32 @@ const Restorepp = ({ searchQuery = '' }) => {
         setUserPrivileges(defaultPrivileges);
     }, []);
 
-    // Effect for loading initial data from localStorage (for persistence)
+    // Effect for loading initial data from localStorage (for persistence); prune old completed jobs
     useEffect(() => {
         const storedAgentData = decryptData(localStorage.getItem("storedRestoreAgentData"));
         const storedAnimatedData = decryptData(localStorage.getItem("storedRestoreAnimatedData"));
         const storedJobFiles = decryptData(localStorage.getItem("storedRestoreJobFiles"));
 
-        const agentDataFromStorage = storedAgentData ? JSON.parse(storedAgentData) : {};
-        const animatedDataFromStorage = storedAnimatedData ? JSON.parse(storedAnimatedData) : {};
+        let agentDataFromStorage = storedAgentData ? JSON.parse(storedAgentData) : {};
+        let animatedDataFromStorage = storedAnimatedData ? JSON.parse(storedAnimatedData) : {};
         const jobFilesFromStorage = storedJobFiles ? JSON.parse(storedJobFiles) : {};
+
+        // Prune old completed/failed restore jobs per agent (keep last 24h)
+        Object.keys(agentDataFromStorage).forEach((agent) => {
+            const restoreJobs = (agentDataFromStorage[agent] || []).filter((j) => j.restore_flag === true || j.restore_flag === "true");
+            const filtered = filterRecentRestoreJobs(restoreJobs, animatedDataFromStorage, agent);
+            agentDataFromStorage[agent] = filtered;
+            if (animatedDataFromStorage[agent]) {
+                const keptIds = new Set(filtered.map((j) => String(j.id)));
+                animatedDataFromStorage[agent] = (animatedDataFromStorage[agent] || []).filter((j) => keptIds.has(String(j.id)));
+            }
+        });
+        try {
+            localStorage.setItem("storedRestoreAgentData", encryptData(JSON.stringify(agentDataFromStorage)));
+            localStorage.setItem("storedRestoreAnimatedData", encryptData(JSON.stringify(animatedDataFromStorage)));
+        } catch (e) {
+            console.error("Failed to persist pruned restore data:", e);
+        }
 
         setAgentData(agentDataFromStorage);
         setAnimatedData(animatedDataFromStorage);
@@ -248,6 +279,29 @@ const Restorepp = ({ searchQuery = '' }) => {
                                 newAgentData[agent].push(job);
                             }
                             return newAgentData;
+                        });
+
+                        // RCA: Update animatedData so progress comes from socket; avoid 100% on dialog appear (UNC/cloud restore)
+                        setAnimatedData(prev => {
+                            const newAnimatedData = { ...prev };
+                            if (!newAnimatedData[agent]) newAnimatedData[agent] = [];
+                            const existingIndex = newAnimatedData[agent].findIndex(j => String(j.id) === String(job.id));
+                            const displayJob = {
+                                ...job,
+                                progress_number: job.progress_number ?? 0,
+                                finished: job.finished ?? false,
+                            };
+                            if (existingIndex !== -1) {
+                                newAnimatedData[agent][existingIndex] = displayJob;
+                            } else {
+                                newAnimatedData[agent].push(displayJob);
+                            }
+                            try {
+                                localStorage.setItem("storedRestoreAnimatedData", encryptData(JSON.stringify(newAnimatedData)));
+                            } catch (e) {
+                                console.error("Failed to persist animatedData from starting (restore):", e);
+                            }
+                            return newAnimatedData;
                         });
 
                         // Update jobFiles for individual files being restored (use String(job.id) for key)
@@ -345,6 +399,10 @@ const Restorepp = ({ searchQuery = '' }) => {
                             // UNC chunk-level: no restore_accuracy, file progress IS job progress – don't freeze
                             const hasJobLevelAggregation = job.restore_accuracy !== undefined && job.restore_accuracy !== null;
                             const shouldFreezeJobProgress = isFileLevel && hasJobLevelAggregation;
+                            const restoreAccuracy = job.restore_accuracy !== undefined ? job.restore_accuracy : (previousJob?.restore_accuracy ?? existingJob?.restore_accuracy);
+                            // RCA: Job not finished when restore_accuracy < 100 (cloud/UNC restore phase still ongoing)
+                            const isRestorePhaseOngoing = restoreAccuracy != null && Number(restoreAccuracy) < 100;
+                            const jobFinished = job.finished !== false && !isRestorePhaseOngoing && (job.finished === true || (job.progress_number != null && job.progress_number >= 100));
                             const animatedJob = {
                                 ...previousJob,
                                 ...job,
@@ -354,18 +412,10 @@ const Restorepp = ({ searchQuery = '' }) => {
                                     ? previousJob?.progress_number          // freeze job when server sends separate restore_accuracy
                                     : Math.min(job.progress_number ?? previousJob?.progress_number ?? 0, 100),
 
-                                // progress_number: isFileLevel
-                                //     ? (prev[agent]?.find(j => String(j.id) === String(job.id))?.progress_number || 0)
-                                //     : Math.min(job.progress_number, 100),
-
-                                // progress_number: isFileLevel
-                                //     ? (existingJob?.progress_number || 0)
-                                //     : Math.min(job.progress_number, 100),
-
                                 restore_accuracy: job.restore_accuracy !== undefined ? job.restore_accuracy : (existingJob?.restore_accuracy),
                                 restore_location: job.restore_location || existingJob?.restore_location,
-                                finished: job.finished,
-                                accuracy: job.accuracy || 100,
+                                finished: job.status === "failed" ? false : jobFinished,
+                                accuracy: job.accuracy ?? 0,
                             };
 
 
@@ -602,10 +652,11 @@ const Restorepp = ({ searchQuery = '' }) => {
                 {Object.keys(agentData)
                     .filter(agent => agent.toLowerCase().includes(searchQuery.toLowerCase()))
                     .map(agent => {
-                        // Filter for jobs with restore_flag true
-                        const restoreJobs = (agentData[agent] || [])
-                            .filter(job => job.restore_flag === true || job.restore_flag === 'true')
-                            .sort((a, b) => b.scheduled_time?.localeCompare(a.scheduled_time)); // Sort for consistent order
+                        // Filter for jobs with restore_flag true; hide old completed/failed (keep last 24h)
+                        const restoreJobs = filterRecentRestoreJobs(
+                            (agentData[agent] || []).filter(job => job.restore_flag === true || job.restore_flag === 'true'),
+                            animatedData, agent
+                        ).sort((a, b) => b.scheduled_time?.localeCompare(a.scheduled_time));
 
                         // Check if the machine is offline based on fetched IPs
                         const isOffline = ips.some(item => item.agent === agent && item.lastConnected !== "True");
@@ -668,10 +719,10 @@ const Restorepp = ({ searchQuery = '' }) => {
                                                 if (isFailed || isCompleted) {
                                                     displayProgressValue = Math.max(0, Math.min(100, accuracy));
                                                 } else {
-                                                    displayProgressValue = Math.max(
-                                                        0,
-                                                        100 - Math.min(100, effectiveJobProgress)
-                                                    );
+                                                    // RCA: Use min of progress_number and restore_accuracy - progress_number can hit 100 (download) before restore_accuracy (actual restore). Same fix for UNC/cloud restore.
+                                                    displayProgressValue = Math.max(0, Math.min(100,
+                                                        Math.min(effectiveJobProgress, isNaN(accuracy) ? effectiveJobProgress : accuracy)
+                                                    ));
                                                 }
                                             } else {
                                                 // Use SAME value as status column: prefer file list, then raw job (same payload as file list)

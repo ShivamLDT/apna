@@ -9406,7 +9406,12 @@ def get_restore_data():
                     if original_p.startswith(os.sep):
                         original_p="".join(original_p.split(os.sep)[0:])
                     RestoreLocation = os.path.join(RestoreLocation,original_p)
-                
+                # Use RestoreLocation (path user set in frontend, e.g. Downloads) as the restore destination.
+                restore_destination = (RestoreLocation if (RestoreLocation and str(RestoreLocation).strip()) else targetLocation)
+                file_basename = os.path.basename(full_name) if full_name else ""
+                if mime_type == "file" and full_name and file_basename and (not restore_destination.rstrip(os.sep).endswith(file_basename)):
+                    restore_destination = os.path.join(restore_destination.rstrip(os.sep), file_basename)
+
                 #if conn:
                 try:
                     sbd=str(uid)   #SMB id
@@ -9414,16 +9419,17 @@ def get_restore_data():
                     #print("conn succeed")
                 except:
                     pass
-                # For UNC, use RestoreLocation directly (the complex _tcc_value replacement doesn't work)
-                # For other storage types, use the replacement logic
-                if str(selectedStorageType).upper() == "UNC":
-                    # UNC: Use restore location directly with {{DRIVE}} placeholder
-                    _tccx_value = str(RestoreLocation).replace(":", "{{DRIVE}}")
-                    _tccn_value = str(RestoreLocation).replace(":", "{{DRIVE}}")
+                # For file restores, send a single path (restore_destination) so the client writes one file,
+                # not path\filename (which would create a folder named like the file and a .bin inside).
+                # For UNC, use restore_destination directly (the complex _tcc_value replacement doesn't work).
+                _restore_norm = str(restore_destination).replace(":", "{{DRIVE}}")
+                if mime_type == "file" or str(selectedStorageType).upper() == "UNC":
+                    _tccx_value = _restore_norm
+                    _tccn_value = _restore_norm
                 else:
                     _tccx_value = _tcc_value.replace(
                         _rec_fpath.replace(":", "{{DRIVE}}"),
-                        str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
+                        str(restore_destination+"\\").replace(":", "{{DRIVE}}"),
                     ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else '')
                     _tccn_value = _tccx_value  # Same transformation
                 
@@ -9495,7 +9501,7 @@ def get_restore_data():
                             os.path.join(
                                 str(rec_dict.get("from_path", "")).replace(
                                     _rec_fpath.replace(":", "{{DRIVE}}"),
-                                    str(RestoreLocation+"\\").replace(":", "{{DRIVE}}"),
+                                    str(restore_destination+"\\").replace(":", "{{DRIVE}}"),
                                 ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else ''),
                                 str(rec_dict.get("file_name", "")),
                             ).encode("UTF-8"),
@@ -9505,7 +9511,7 @@ def get_restore_data():
                     ),
                     "tccnna": base64.b64encode(
                         gzip.compress(
-                            str(RestoreLocation.replace(":", "{{DRIVE}}"),
+                            str(restore_destination.replace(":", "{{DRIVE}}"),
                                 ).encode("UTF-8"),
                             9,
                             mtime=time.time(),
@@ -9513,7 +9519,7 @@ def get_restore_data():
                     ),
                     "tccnrest": base64.b64encode(
                         gzip.compress(
-                            str(RestoreLocation.replace(":", "{{DRIVE}}")).encode("UTF-8"),
+                            str(restore_destination.replace(":", "{{DRIVE}}")).encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
@@ -9526,10 +9532,11 @@ def get_restore_data():
                         )
                     ),
                 }
-                if mime_type == "file":                    
+                if mime_type == "file":
+                    # Send single-file path so client writes one file, not folder + .bin
                     header.update({"tccn": base64.b64encode(
                         gzip.compress(
-                            str( os.path.join( "X" + os.path.sep + RestoreLocation)).encode("UTF-8"),
+                            _tccn_value.encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         ))})
