@@ -793,9 +793,23 @@ def restoretest():
                 expected_file_hash = str(chunk_manifest.get("file_hash", ""))
                 if expected_file_hash:
                     file_hasher = hashlib.sha256()
-                    with open(tccn, "rb") as restored_file:
-                        for block in iter(lambda: restored_file.read(1024 * 1024), b""):
-                            file_hasher.update(block)
+                    try:
+                        with open(tccn, "rb") as restored_file:
+                            for block in iter(lambda: restored_file.read(1024 * 1024), b""):
+                                file_hasher.update(block)
+                    except (PermissionError, OSError) as open_err:
+                        log_event(
+                            logger,
+                            logging.ERROR,
+                            job_id,
+                            "restore",
+                            file_path=tccn,
+                            file_id=obj,
+                            error_code="RESTORE_FILE_ACCESS",
+                            error_message=str(open_err),
+                            extra={"event": "job_failed"},
+                        )
+                        return make_response(jsonify({"file": tccn, "restore": "failed", "reason": "Permission denied opening restored file (close other apps using it)"}), 500)
                     actual_file_hash = file_hasher.hexdigest()
                     if actual_file_hash != expected_file_hash:
                         log_event(
@@ -1229,9 +1243,23 @@ def restoretest():
             expected_file_hash = str(chunk_manifest.get("file_hash", ""))
             if expected_file_hash:
                 file_hasher = hashlib.sha256()
-                with open(tccn, "rb") as restored_file:
-                    for block in iter(lambda: restored_file.read(1024 * 1024), b""):
-                        file_hasher.update(block)
+                try:
+                    with open(tccn, "rb") as restored_file:
+                        for block in iter(lambda: restored_file.read(1024 * 1024), b""):
+                            file_hasher.update(block)
+                except (PermissionError, OSError) as open_err:
+                    log_event(
+                        logger,
+                        logging.ERROR,
+                        job_id,
+                        "restore",
+                        file_path=tccn,
+                        file_id=obj,
+                        error_code="RESTORE_FILE_ACCESS",
+                        error_message=str(open_err),
+                        extra={"event": "job_failed"},
+                    )
+                    return make_response(jsonify({"file": tccn, "restore": "failed", "reason": "Permission denied opening restored file (close other apps using it)"}), 500)
                 actual_file_hash = file_hasher.hexdigest()
                 if actual_file_hash != expected_file_hash:
                     log_event(
