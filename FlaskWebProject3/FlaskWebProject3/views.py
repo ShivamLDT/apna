@@ -9403,29 +9403,29 @@ def get_restore_data():
                                 if not search_root or not os.path.isdir(search_root):
                                     continue
                                 for root, _, files in os.walk(search_root):
-                                for f in files:
-                                    matches = (
-                                        f.endswith(suffix) or f.endswith(suffix_alt) or
-                                        (file_name_for_manifest and f.startswith(f"{file_name_for_manifest}_") and f.endswith(".manifest.json")) or
-                                        (suffix_bare and f == suffix_bare)
-                                    )
-                                    if matches:
-                                        cand = os.path.join(root, f)
-                                        try:
-                                            with open(cand, "r", encoding="utf-8") as mf:
-                                                data = json.load(mf)
-                                            if data.get("total_chunks") and data.get("chunks"):
-                                                best_manifest = cand
-                                                manifest_path = cand
-                                                manifest_data["total_chunks"] = data.get("total_chunks", 0)
-                                                manifest_data["chunks"] = data.get("chunks", {})
-                                                if data.get("file_hash"):
-                                                    manifest_data["file_hash"] = data.get("file_hash")
-                                                break
-                                        except Exception:
-                                            pass
-                                    if best_manifest:
-                                        break
+                                    for f in files:
+                                        matches = (
+                                            f.endswith(suffix) or f.endswith(suffix_alt) or
+                                            (file_name_for_manifest and f.startswith(f"{file_name_for_manifest}_") and f.endswith(".manifest.json")) or
+                                            (suffix_bare and f == suffix_bare)
+                                        )
+                                        if matches:
+                                            cand = os.path.join(root, f)
+                                            try:
+                                                with open(cand, "r", encoding="utf-8") as mf:
+                                                    data = json.load(mf)
+                                                if data.get("total_chunks") and data.get("chunks"):
+                                                    best_manifest = cand
+                                                    manifest_path = cand
+                                                    manifest_data["total_chunks"] = data.get("total_chunks", 0)
+                                                    manifest_data["chunks"] = data.get("chunks", {})
+                                                    if data.get("file_hash"):
+                                                        manifest_data["file_hash"] = data.get("file_hash")
+                                                    break
+                                            except Exception:
+                                                pass
+                                        if best_manifest:
+                                            break
                                 if best_manifest:
                                     break
                         except Exception:
