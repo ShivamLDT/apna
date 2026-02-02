@@ -277,6 +277,10 @@ def create_database_route():
         return jsonify({"message": "Database name is required"}), 400
 
     try:
+        # Ensure parent directory exists (e.g. C:\ProgramData\ApnaBackup\ABServer)
+        db_dir = os.path.dirname(database_name)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         if create_database(database_name):
             return (
                 jsonify(

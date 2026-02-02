@@ -381,12 +381,20 @@ async function request(method, url, data = null, config = {}) {
         newConfig.data = encBody;
       }
       const resp = await axios(newConfig);
-      if (resp?.data && resp.data.iv && resp.data.ct) {
+      const payload = resp?.data;
+      if (payload && typeof payload === 'object' && 'iv' in payload) {
+        if (!('ct' in payload) || !payload.ct) {
+          console.warn('Encrypted response missing "ct", invalidating session and retrying');
+          invalidateSession();
+          if (retried < maxRetries) {
+            retried++;
+            await new Promise(resolve => setTimeout(resolve, 500 * retried));
+            continue;
+          }
+          throw new Error('Invalid encrypted response (missing ciphertext)');
+        }
         try {
-          resp.data = await aesDecrypt(resp.data, aesKey);
-          // console.log('====================================');
-          // console.log("Response", resp.data);
-          // console.log('====================================');
+          resp.data = await aesDecrypt(payload, aesKey);
         } catch (err) {
           console.error('Decryption failed, invalidating session', err);
           invalidateSession();
