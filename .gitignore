@@ -95,7 +95,9 @@ DvlErrLog.txt
 logs/
 abf.log
 LAN*.log
-
+.env
+.cursor
+.vevn/
 # =========================
 # IDE / Editor
 # =========================

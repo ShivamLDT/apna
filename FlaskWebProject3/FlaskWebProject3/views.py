@@ -107,7 +107,9 @@ from module2 import restore_child, restore_parent
 import onedrive
 from runserver import check_license_runserver
 
-from sqlite_managerA import SQLiteManager #, RowWrapper
+from FlaskWebProject3.db import get_session_for_project
+from FlaskWebProject3.db_config import USE_MSSQL
+from FlaskWebProject3.sqlite_legacy import execute_queries_sqlite
 
 # from .socketio import sktio
 from FlaskWebProject3 import sktio
@@ -2315,22 +2317,11 @@ def backupprofilescreate():
                         c = clientnodes_x[obj.get("ipAddress")].get("key")
 
                         try:
-
-                            # if not os.path.exists(
-                            #     os.path.join(app.config["location"], f"{c}.db")
-                            # ):
-                            threading.Thread(
-                                target=lambda: requests.post(
-                                    request.url_root + "create_database",
-                                    json={
-                                        "database_name": os.path.join(
-                                            app.config["location"], f"{c}.db"
-                                        )
-                                    },
-                                ),
-                                daemon=True,
-                            ).start()
-
+                            url_root = request.url_root
+                            db_path = os.path.join(app.config["location"], f"{c}.db")
+                            def _create_db():
+                                requests.post(url_root + "create_database", json={"database_name": db_path})
+                            threading.Thread(target=_create_db, daemon=True).start()
                         except Exception:
                             print("")
                             pass
@@ -2660,10 +2651,30 @@ def backup_jobs():
 
 
 ########################
-def get_db_connection(dbname):
-    conn = sqlite3.connect(dbname)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _get_node_jobs_rows(project_id_or_path, node_filter=None):
+    """Get node_jobs rows - uses ORM when USE_MSSQL, else sqlite3. project_id_or_path is project_id (str) for MSSQL, or db path for SQLite."""
+    from module2 import NodeJob
+    if USE_MSSQL:
+        with get_session_for_project(project_id_or_path) as session:
+            q = session.query(NodeJob).filter(NodeJob.project_id == project_id_or_path)
+            if node_filter:
+                q = q.filter(NodeJob.node == node_filter)
+            rows = q.all()
+            return [{"node": r.node, "nodeName": r.nodeName, "total_success": r.total_success or 0,
+                     "total_failed": r.total_failed or 0, "data": r.data, "failed_data": r.failed_data} for r in rows]
+    else:
+        conn = sqlite3.connect(project_id_or_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            cursor = conn.cursor()
+            if node_filter:
+                cursor.execute("SELECT * FROM node_jobs WHERE node = ?", (node_filter,))
+            else:
+                cursor.execute("SELECT * FROM node_jobs")
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
 
 @app.route('/node_jobs', methods=['POST'])
 def get_node_jobs():
@@ -2674,14 +2685,12 @@ def get_node_jobs():
     fetch_all_failed_jobs()
     fetch_all_success_jobs()
 
-    dbname = f'{str(app.config.get("getCode"))}.db'
-    with get_db_connection(dbname) as conn:
-        cursor = conn.cursor()
-        if node_filter:
-            cursor.execute("SELECT * FROM node_jobs WHERE node = ?", (node_filter,))
-        else:
-            cursor.execute("SELECT * FROM node_jobs")
-        rows = cursor.fetchall()
+    project_id = str(app.config.get("getCode", ""))
+    if USE_MSSQL:
+        rows = _get_node_jobs_rows(project_id, node_filter)
+    else:
+        dbpath = os.path.join(app.config.get("location", ""), project_id)
+        rows = _get_node_jobs_rows(dbpath, node_filter)
 
     if action == "count":
         total_success = 0
@@ -2924,8 +2933,6 @@ def fetch_all_failed_jobs(action=None):
             # responses = []
             responses = {}
             total_count = 0 
-            from sqlite_managerA import SQLiteManager
-            session = SQLiteManager()
             for future in concurrent.futures.as_completed(futures):
                 url, metadata = futures[future]
                 try:
@@ -3195,8 +3202,6 @@ def fetch_all_success_jobs(action=None):
             # responses = []
             responses = {}
             total_count = 0
-            from sqlite_managerA import SQLiteManager
-            session = SQLiteManager()
             for future in concurrent.futures.as_completed(futures):
                 url, metadata = futures[future]
                 try:
@@ -3535,78 +3540,93 @@ def data_download_file():
 @app.route("/data/download/", methods=["GET", "POST"])
 def data_download():
     from flask import send_file
+    from module2 import BackupLogs, BackupMain
 
     id = request.headers.get("id")
     pid = request.headers.get("pid")
     obj = request.headers.get("obj")
-
-    # conn = sqlite3.connect(f"{obj}.db")
-    s_manager = SQLiteManager()
+    project_id = obj
     dbname = os.path.join(app.config["location"], obj)
-    qrs = [
-        (
-            dbname,
-            [
-                "SELECT * FROM backups where "
-                + "id = "
-                + str(id)
-                + " and name = "
-                + str(pid)
-            ],
-        )
-    ]
-    results = s_manager.execute_queries(qrs)
-    file_paths=None
-    for db_path, db_results in results.items():
-        print(f"Results for {db_path}:")
-        for i, (result, records) in enumerate(db_results):
-            print(f"  Query {i+1}: {result}")
-            if result == "Success":
-                if records is not None:
-                    file_paths = records
-                    print(f"    Records: {records}")
 
-    # conn = sqlite3.connect(dbname)
-    # cursor = conn.cursor()
-    # cursor.execute(
-    #     "SELECT * FROM backups where " + "id = " + str(id) + " and name = " + str(pid)
-    # )
-    # file_paths = cursor.fetchall()
-    # cursor.close()
-    # conn.close()
     file_or_folder = None
     jd = None
-    if file_paths and len(file_paths) > 0:
-        file_or_folder = file_paths[0][8]
-        if file_or_folder == "" or file_or_folder is None:
-            file_or_folder = "folder"
-        try:
-            log_val = file_paths[0][10]
-            jd = json.loads(log_val) if isinstance(log_val, str) else log_val
-            if isinstance(jd, str):
-                jd = json.loads(jd)
-        except Exception:
-            jd = None
-    # GDrive/cloud fallback: when backups is empty, query backups_M (data_repod has metadata)
+    file_paths = []
+
+    if USE_MSSQL:
+        with get_session_for_project(project_id) as session:
+            row = session.query(BackupLogs).filter(
+                BackupLogs.project_id == project_id,
+                BackupLogs.id == float(id),
+                BackupLogs.name == float(pid),
+            ).first()
+            if row:
+                file_paths = [row]
+                file_or_folder = row.mime_type
+                if file_or_folder == "" or file_or_folder is None:
+                    file_or_folder = "folder"
+                try:
+                    log_val = row.log
+                    jd = json.loads(log_val) if isinstance(log_val, str) else log_val
+                    if isinstance(jd, str):
+                        jd = json.loads(jd)
+                except Exception:
+                    jd = None
+    else:
+        qrs = [(dbname, ["SELECT * FROM backups where id = " + str(id) + " and name = " + str(pid)])]
+        results = execute_queries_sqlite(qrs)
+        for db_path, db_results in results.items():
+            for result, records in db_results:
+                if result == "Success" and records:
+                    file_paths = records
+                    break
+        if file_paths and len(file_paths) > 0:
+            file_or_folder = file_paths[0][8]
+            if file_or_folder == "" or file_or_folder is None:
+                file_or_folder = "folder"
+            try:
+                log_val = file_paths[0][10]
+                jd = json.loads(log_val) if isinstance(log_val, str) else log_val
+                if isinstance(jd, str):
+                    jd = json.loads(jd)
+            except Exception:
+                jd = None
+
+    # GDrive/cloud fallback
     if jd is None and id and pid and obj:
-        q_backups_m = (
-            "SELECT from_path, file_name, data_repo, data_repod FROM backups_M WHERE "
-            f"id = {float(pid)}"
-        )
         try:
-            qrs_m = [(dbname, [q_backups_m])]
-            results_m = s_manager.execute_queries(qrs_m)
-            db_results = results_m.get(dbname, [])
-            if db_results and db_results[0][0] == "Success" and db_results[0][1]:
-                row = db_results[0][1][0]
-                from_path, file_name_m, data_repo_m, data_repod = (row[0] or ""), (row[1] or ""), (row[2] or ""), (row[3] or "{}")
-                file_or_folder = "file" if file_name_m else "folder"
-                if data_repod:
-                    jd = json.loads(data_repod) if isinstance(data_repod, str) else data_repod
-                    jd = jd or {}
-                    jd.setdefault("rep", data_repo_m)
-                    jd.setdefault("file_name", os.path.basename(file_name_m) if file_name_m else "")
-                    jd.setdefault("file_name_x", (from_path + os.sep + file_name_m) if file_name_m else from_path)
+            if USE_MSSQL:
+                with get_session_for_project(project_id) as session:
+                    bm = session.query(BackupMain).filter(
+                        BackupMain.project_id == project_id,
+                        BackupMain.id == float(pid),
+                    ).first()
+                    if bm:
+                        from_path = bm.from_path or ""
+                        file_name_m = bm.file_name or ""
+                        data_repo_m = bm.data_repo or ""
+                        data_repod = bm.data_repod or "{}"
+                        file_or_folder = "file" if file_name_m else "folder"
+                        if data_repod:
+                            jd = json.loads(data_repod) if isinstance(data_repod, str) else data_repod
+                            jd = jd or {}
+                            jd.setdefault("rep", data_repo_m)
+                            jd.setdefault("file_name", os.path.basename(file_name_m) if file_name_m else "")
+                            jd.setdefault("file_name_x", (from_path + os.sep + file_name_m) if file_name_m else from_path)
+            else:
+                q_backups_m = "SELECT from_path, file_name, data_repo, data_repod FROM backups_M WHERE id = " + str(float(pid))
+                qrs_m = [(dbname, [q_backups_m])]
+                results_m = execute_queries_sqlite(qrs_m)
+                db_results = results_m.get(dbname, [])
+                if db_results and db_results[0][0] == "Success" and db_results[0][1]:
+                    row = db_results[0][1][0]
+                    from_path, file_name_m, data_repo_m, data_repod = (row[0] or ""), (row[1] or ""), (row[2] or ""), (row[3] or "{}")
+                    file_or_folder = "file" if file_name_m else "folder"
+                    if data_repod:
+                        jd = json.loads(data_repod) if isinstance(data_repod, str) else data_repod
+                        jd = jd or {}
+                        jd.setdefault("rep", data_repo_m)
+                        jd.setdefault("file_name", os.path.basename(file_name_m) if file_name_m else "")
+                        jd.setdefault("file_name_x", (from_path + os.sep + file_name_m) if file_name_m else from_path)
         except Exception:
             pass
     if jd is None:
@@ -3823,7 +3843,6 @@ def upload_file_unc():
         from module2 import BackupLogs, BackupMain
         from datetime import date
 
-        s_manager = SQLiteManager()        
         v = request.headers.get("v",None)
        
         if v:
@@ -3988,143 +4007,35 @@ def upload_file_unc():
             )
         done_all = 1 if jsvkrgs["totalfiles"] == jsvkrgs["currentfile"] else 0
         dbname = os.path.join(app.config["location"], scom)
-        qrs = [
-            (
-                dbname,
-                [
-                    "INSERT or IGNORE INTO backups_M ("
-                    + " id,date_time,from_computer,from_path,"
-                    + " data_repo,mime_type,file_name,size,"
-                    + " pNameText,pIdText,bkupType,sum_all,"
-                    + " sum_done,done_all,status,mode,data_repod) "
-                    + "VALUES("
-                    + str(j_sta)#str(job_id)
-                    + ","
-                    + str(time())
-                    + ","
-                    + "'"
-                    + scon
-                    + "',"
-                    + "'"
-                    + src_folder  #from_path
-                    + "',"
-                    + "'UNC',"
-                    + "'"
-                    + mime_type
-                    + "',"
-                    + "'',"
-                    + "0,"
-                    + "'"
-                    + p_NameText
-                    + "',"
-                    + "'"
-                    + p_IdText
-                    + "',"
-                    + "'"
-                    + bkupType
-                    + "',"
-                    + ""
-                    + str(jsvkrgs["totalfiles"])
-                    + ","
-                    + ""
-                    + str(jsvkrgs["filesdone"])# str(jsvkrgs["currentfile"])
-                    + ","
-                    + ""
-                    + str(done_all)
-                    + ","
-                    + "'',"
-                    + "'',"
-                    + "''"
-                    + ") "
-                    # + ") ON conflict(id) DO UPDATE SET"
-                    + " ON CONFLICT(id) DO UPDATE SET date_time = excluded.date_time, "
-                    + " from_computer = excluded.from_computer, from_path = excluded.from_path, "
-                    + " data_repo = excluded.data_repo, mime_type = excluded.mime_type, file_name = excluded.file_name, "
-                    + " size = excluded.size, "
-                    + " pNameText = excluded.pNameText, " 
-                    + " pIdText = excluded.pIdText, " 
-                    + " bkupType = excluded.bkupType, " 
-                    + " sum_all = excluded.sum_all, " 
-                    + " sum_done = excluded.sum_done, " 
-                    + " done_all = excluded.done_all, " 
-                    + " status = excluded.status, " 
-                    + " mode = excluded.mode, " 
-                    + " data_repod = excluded.data_repod"
-                    
-                ],
-            ),
-            (
-                dbname,
-                [
-                    "update backups_M  "
-                    + " set sum_done = " + str(jsvkrgs["filesdone"])  
-                    + " where id = " + str(job_id)  
-                ],
-            )
-        ]
-        results = s_manager.execute_queries(qrs)
-        if (str(results[dbname][0]).capitalize()).__contains__("success"):
-            qrs = [
-                (
-                    dbname,
-                    [
-                        # id,name,date_time,from_computer,from_path,
-                        # data_repo,mime_type,size,file_name,full_file_name,
-                        # log,pNameText,pIdText,bkupType,sum_all,sum_done,done_all,status,mode,data_repod
-                        " INSERT or IGNORE INTO backups("
-                        + " id,name,date_time,from_computer,from_path,"
-                        + " data_repo,mime_type,file_name,full_file_name,size,"
-                        + " log, pNameText,pIdText,bkupType,sum_all,"
-                        + " sum_done,done_all,status,mode,data_repod) "
-                        + "VALUES("
-                        + str(unique_time_float())
-                        + ","
-                        + str(j_sta)#str(job_id)
-                        + ","
-                        + str(int(time()))
-                        + ","
-                        + "'"
-                        + scon
-                        + "',"
-                        + "'"
-                        + from_path
-                        + "',"
-                        + "'UNC',"
-                        + "'"
-                        + mime_type
-                        + "',"
-                        + "'"
-                        + file_name
-                        + "',"
-                        + "'"
-                        + full_file_name
-                        + "',"
-                        + str(file_size) +"," #"0,"
-                        + "'"
-                        + tcc
-                        + "',"
-                        + "'"
-                        + p_NameText
-                        + "',"
-                        + "'"
-                        + p_IdText
-                        + "',"
-                        + "'"
-                        + bkupType
-                        + "',"
-                        + "1,"
-                        + "1,"
-                        + "1,"
-                        + "'',"
-                        + "'',"
-                        + "''"
-                        + ") "
-                        + ""
-
-                    ],
-                )
-            ]
-        results = s_manager.execute_queries(qrs)
+        if USE_MSSQL and scom:
+            from FlaskWebProject3.models import BackupMain as BMModel, BackupLogs as BLModel
+            with get_session_for_project(scom) as session:
+                bm = BMModel(project_id=scom, id=float(j_sta), date_time=time(), from_computer=scon,
+                    from_path=src_folder, data_repo="UNC", mime_type=mime_type, file_name="",
+                    size=0, pNameText=p_NameText, pIdText=p_IdText, bkupType=bkupType,
+                    sum_all=int(jsvkrgs["totalfiles"]), sum_done=int(jsvkrgs["filesdone"]),
+                    done_all=done_all, status="", mode="", data_repod="")
+                session.merge(bm)
+                session.query(BMModel).filter(BMModel.project_id == scom, BMModel.id == float(job_id)).update(
+                    {"sum_done": int(jsvkrgs["filesdone"])}, synchronize_session=False)
+                bl = BLModel(project_id=scom, id=unique_time_float(), name=float(j_sta), date_time=int(time()),
+                    from_computer=scon, from_path=from_path, data_repo="UNC", mime_type=mime_type,
+                    file_name=file_name, full_file_name=full_file_name, size=file_size, log=tcc,
+                    pNameText=p_NameText, pIdText=p_IdText, bkupType=bkupType, sum_all=1, sum_done=1, done_all=1,
+                    status="", mode="", data_repod="")
+                session.merge(bl)
+            results = {dbname: [("Success", None)]}
+        else:
+            qrs = [(dbname, ["INSERT or IGNORE INTO backups_M (id,date_time,from_computer,from_path,data_repo,mime_type,file_name,size,pNameText,pIdText,bkupType,sum_all,sum_done,done_all,status,mode,data_repod) VALUES("
+                + str(j_sta) + "," + str(time()) + ",'" + scon + "','" + src_folder + "','UNC','" + mime_type + "','',0,'"
+                + p_NameText + "','" + p_IdText + "','" + bkupType + "'," + str(jsvkrgs["totalfiles"]) + ","
+                + str(jsvkrgs["filesdone"]) + "," + str(done_all) + ",'','','') ON CONFLICT(id) DO UPDATE SET date_time=excluded.date_time,from_computer=excluded.from_computer,from_path=excluded.from_path,data_repo=excluded.data_repo,mime_type=excluded.mime_type,file_name=excluded.file_name,size=excluded.size,pNameText=excluded.pNameText,pIdText=excluded.pIdText,bkupType=excluded.bkupType,sum_all=excluded.sum_all,sum_done=excluded.sum_done,done_all=excluded.done_all,status=excluded.status,mode=excluded.mode,data_repod=excluded.data_repod",
+                "update backups_M set sum_done=" + str(jsvkrgs["filesdone"]) + " where id=" + str(job_id)])]
+            results = execute_queries_sqlite(qrs)
+            if (str(results.get(dbname, [[None]])[0]).capitalize()).__contains__("success"):
+                qrs2 = [(dbname, [" INSERT or IGNORE INTO backups(id,name,date_time,from_computer,from_path,data_repo,mime_type,file_name,full_file_name,size,log,pNameText,pIdText,bkupType,sum_all,sum_done,done_all,status,mode,data_repod) VALUES("
+                    + str(unique_time_float()) + "," + str(j_sta) + "," + str(int(time())) + ",'" + scon + "','" + from_path + "','UNC','" + mime_type + "','" + file_name + "','" + full_file_name + "'," + str(file_size) + ",'" + tcc + "','" + p_NameText + "','" + p_IdText + "','" + bkupType + "',1,1,1,'','','')"])]
+                results = execute_queries_sqlite(qrs2)
         if file_name and not abort and seq_num == total_chunks:
             final_manifest_path = _final_manifest_path(tcc, file_name, j_sta)
             temp_manifest_path = _manifest_path(temp_manifest_dir, file_name, j_sta)
@@ -4219,7 +4130,6 @@ def upload_file_nas():
         from module2 import BackupLogs, BackupMain
         from datetime import date
 
-        s_manager = SQLiteManager()        
         v = request.headers.get("v",None)
        
         if v:
@@ -4332,129 +4242,35 @@ def upload_file_nas():
             file_name = os.path.basename(file_path)
         done_all = 1 if jsvkrgs["totalfiles"] == jsvkrgs["currentfile"] else 0
         dbname = os.path.join(app.config["location"], scom)
-        qrs = [
-            (
-                dbname,
-                [
-                    "INSERT or IGNORE INTO backups_M ("
-                    + " id,date_time,from_computer,from_path,"
-                    + " data_repo,mime_type,file_name,size,"
-                    + " pNameText,pIdText,bkupType,sum_all,"
-                    + " sum_done,done_all,status,mode,data_repod) "
-                    + "VALUES("
-                    + str(job_id)
-                    + ","
-                    + str(time())
-                    + ","
-                    + "'"
-                    + scon
-                    + "',"
-                    + "'"
-                    + src_folder  #from_path
-                    + "',"
-                    + "'NAS',"
-                    + "'"
-                    + mime_type
-                    + "',"
-                    + "'',"
-                    + "0,"
-                    + "'"
-                    + p_NameText
-                    + "',"
-                    + "'"
-                    + p_IdText
-                    + "',"
-                    + "'"
-                    + bkupType
-                    + "',"
-                    + ""
-                    + str(jsvkrgs["totalfiles"])
-                    + ","
-                    + ""
-                    + str(jsvkrgs["filesdone"])# str(jsvkrgs["currentfile"])
-                    + ","
-                    + ""
-                    + str(done_all)
-                    + ","
-                    + "'',"
-                    + "'',"
-                    + "''"
-                    + ") "
-                    # + ") ON conflict(id) DO UPDATE SET"
-                    
-                ],
-            ),
-            (
-                dbname,
-                [
-                    "update backups_M  "
-                    + " set sum_done = " + str(jsvkrgs["filesdone"])  
-                    + " where id = " + str(job_id)  
-                ],
-            )
-        ]
-        results = s_manager.execute_queries(qrs)
-        if (str(results[dbname][0]).capitalize()).__contains__("success"):
-            qrs = [
-                (
-                    dbname,
-                    [
-                        # id,name,date_time,from_computer,from_path,
-                        # data_repo,mime_type,size,file_name,full_file_name,
-                        # log,pNameText,pIdText,bkupType,sum_all,sum_done,done_all,status,mode,data_repod
-                        " INSERT or IGNORE INTO backups("
-                        + " id,name,date_time,from_computer,from_path,"
-                        + " data_repo,mime_type,file_name,full_file_name,size,"
-                        + " log, pNameText,pIdText,bkupType,sum_all,"
-                        + " sum_done,done_all,status,mode,data_repod) "
-                        + "VALUES("
-                        + str(time())
-                        + ","
-                        + str(job_id)
-                        + ","
-                        + str(int(time()))
-                        + ","
-                        + "'"
-                        + scon
-                        + "',"
-                        + "'"
-                        + from_path
-                        + "',"
-                        + "'NAS',"
-                        + "'"
-                        + mime_type
-                        + "',"
-                        + "'"
-                        + file_name
-                        + "',"
-                        + "'"
-                        + full_file_name
-                        + "',"
-                        + "0,"
-                        + "'"
-                        + tcc
-                        + "',"
-                        + "'"
-                        + p_NameText
-                        + "',"
-                        + "'"
-                        + p_IdText
-                        + "',"
-                        + "'"
-                        + bkupType
-                        + "',"
-                        + "0,"
-                        + "0,"
-                        + "0,"
-                        + "'',"
-                        + "'',"
-                        + "''"
-                        + ") "
-                        # + " ON conflict(id) DO UPDATE SET"
-                    ],
-                )
-            ]
-        results = s_manager.execute_queries(qrs)
+        if USE_MSSQL and scom:
+            from FlaskWebProject3.models import BackupMain as BMModel, BackupLogs as BLModel
+            with get_session_for_project(scom) as session:
+                bm = BMModel(project_id=scom, id=float(job_id), date_time=time(), from_computer=scon,
+                    from_path=src_folder, data_repo="NAS", mime_type=mime_type, file_name="",
+                    size=0, pNameText=p_NameText, pIdText=p_IdText, bkupType=bkupType,
+                    sum_all=int(jsvkrgs["totalfiles"]), sum_done=int(jsvkrgs["filesdone"]),
+                    done_all=done_all, status="", mode="", data_repod="")
+                session.merge(bm)
+                session.query(BMModel).filter(BMModel.project_id == scom, BMModel.id == float(job_id)).update(
+                    {"sum_done": int(jsvkrgs["filesdone"])}, synchronize_session=False)
+                bl = BLModel(project_id=scom, id=unique_time_float(), name=float(job_id), date_time=int(time()),
+                    from_computer=scon, from_path=from_path, data_repo="NAS", mime_type=mime_type,
+                    file_name=file_name, full_file_name=full_file_name, size=0, log=tcc,
+                    pNameText=p_NameText, pIdText=p_IdText, bkupType=bkupType, sum_all=0, sum_done=0, done_all=0,
+                    status="", mode="", data_repod="")
+                session.merge(bl)
+            results = {dbname: [("Success", None)]}
+        else:
+            qrs = [(dbname, ["INSERT or IGNORE INTO backups_M (id,date_time,from_computer,from_path,data_repo,mime_type,file_name,size,pNameText,pIdText,bkupType,sum_all,sum_done,done_all,status,mode,data_repod) VALUES("
+                + str(job_id) + "," + str(time()) + ",'" + scon + "','" + src_folder + "','NAS','" + mime_type + "','',0,'"
+                + p_NameText + "','" + p_IdText + "','" + bkupType + "'," + str(jsvkrgs["totalfiles"]) + ","
+                + str(jsvkrgs["filesdone"]) + "," + str(done_all) + ",'','','')",
+                "update backups_M set sum_done=" + str(jsvkrgs["filesdone"]) + " where id=" + str(job_id)])]
+            results = execute_queries_sqlite(qrs)
+            if (str(results.get(dbname, [[None]])[0]).capitalize()).__contains__("success"):
+                qrs2 = [(dbname, [" INSERT or IGNORE INTO backups(id,name,date_time,from_computer,from_path,data_repo,mime_type,file_name,full_file_name,size,log,pNameText,pIdText,bkupType,sum_all,sum_done,done_all,status,mode,data_repod) VALUES("
+                    + str(time()) + "," + str(job_id) + "," + str(int(time())) + ",'" + scon + "','" + from_path + "','NAS','" + mime_type + "','" + file_name + "','" + full_file_name + "',0,'" + tcc + "','" + p_NameText + "','" + p_IdText + "','" + bkupType + "',0,0,0,'','','')"])]
+                results = execute_queries_sqlite(qrs2)
         if file_name and not abort and seq_num == total_chunks:
             final_manifest_path = _final_manifest_path(tcc, file_name, j_sta)
             temp_manifest_path = _manifest_path(temp_manifest_dir, file_name, j_sta)
@@ -5277,9 +5093,21 @@ def _save_manifest(temp_dir, file_name, tfi, manifest):
 
 
 def _manifest_folder(tcc_value):
+    """Return a safe folder name for manifest storage. Hashes absolute paths and file paths."""
     value = str(tcc_value or "")
     trimmed = value.strip()
     if trimmed.startswith("{") and trimmed.endswith("}"):
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    # Absolute paths (e.g. C:\... or /path) or paths ending with a filename create invalid
+    # manifest paths when used as folder - hash them to get a safe directory name
+    if not trimmed:
+        return "default"
+    is_absolute = (
+        (len(trimmed) >= 2 and trimmed[1] == ":")  # Windows C:\
+        or trimmed.startswith("/")
+        or trimmed.startswith("\\")
+    )
+    if is_absolute or os.path.sep in trimmed:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
     return value
 
@@ -6633,12 +6461,7 @@ def save_final(
                 from datetime import date
 
                 var = BackupLogs()
-
-                # engine = create_engine(f"sqlite:///{epc}.db")
-                # Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-                # xession = Session()
-                from sqlite_managerA import SQLiteManager
-                xession = SQLiteManager()
+                project_id_inner = epc
                 dbname = os.path.join(app.config["location"], epc)
                 from sqlalchemy import func
                 thiscurrentfile = currentfile if bdone else float(currentfile) - 1
@@ -6649,23 +6472,27 @@ def save_final(
                     done_all=0
                     try:
                         if bNoBackup:
-                            # q = xession.query(BackupLogs).filter(
-                            #         BackupLogs.sum_all == BackupLogs.sum_done,
-                            #         BackupLogs.pIdText == pIdText,
-                            #         BackupLogs.full_file_name==os.path.join(tcc, file_name),
-                            #         BackupLogs.size>0,
-                            #         #BackupLogs.fidi==fidi,
-                            #     ) 
-                            q_logs = (
+                            if USE_MSSQL:
+                                from FlaskWebProject3.models import BackupLogs as BLModel
+                                with get_session_for_project(epc) as session:
+                                    rows = session.query(BLModel).filter(
+                                        BLModel.project_id == epc,
+                                        BLModel.pIdText == str(pIdText),
+                                        BLModel.full_file_name == os.path.join(tcc, file_name),
+                                        BLModel.size > 0,
+                                    ).order_by(BLModel.date_time.asc()).all()
+                                    results = {dbname: [("Success", [[r.log, r.fidi, r.date_time, r.size, r.sum_all, r.sum_done, r.done_all] for r in rows])]}
+                            else:
+                                q_logs = (
                                     "SELECT log, fidi, date_time,size,sum_all,sum_done,done_all FROM backups "
-                                    "WHERE done_all=100 " #(100*sum_all/ sum_done)=100 "
+                                    "WHERE done_all=100 "
                                     "AND pIdText = '" + str(pIdText) + "' "
                                     "AND full_file_name = '" + str(os.path.join(tcc, file_name)) + "' "
                                     "AND size > 0 "
                                     "ORDER BY date_time ASC"
                                 )
-                            qrs = [(dbname, [q_logs])]
-                            results = xession.execute_queries(qrs)
+                                qrs = [(dbname, [q_logs])]
+                                results = execute_queries_sqlite(qrs)
 
 
                             if bkupType == "incremental":
@@ -6789,27 +6616,26 @@ def save_final(
                             "mode=excluded.mode, "
                             "data_repod=excluded.data_repod"
                         )
-                        xession.execute_queries([(dbname, [sql_main])])
+                        if USE_MSSQL:
+                            from FlaskWebProject3.models import BackupMain as BMModel
+                            with get_session_for_project(epc) as session:
+                                bm = BMModel(
+                                    project_id=epc, id=float(j_sta), date_time=time(), from_computer=epn,
+                                    from_path=tccsrc, file_name=file_name if (mimet == 'file') else '',
+                                    data_repo=rep, mime_type=mimet, size=stat.get('size', 1),
+                                    pNameText=pNameText, pIdText=pIdText, bkupType=bkupType,
+                                    sum_all=totalfiles, sum_done=thiscurrentfile, done_all=0,
+                                    status='xdone_all', mode='xdone_all', data_repod='xdone_all',
+                                )
+                                session.merge(bm)
+                        else:
+                            execute_queries_sqlite([(dbname, [sql_main])])
 
                     except Exception as ssees:
                         print(str("#### ssees ####################"))
                         print(str(ssees))
                         logger.error(f"Unhandled error in save_savelogdata ({pNameText}): {str(ssees)}")
                         print(str("#### ssees ####################"))
-                        # xession.rollback()
-                        # from sqlalchemy import update
-
-                        # try:
-                        #     xession.execute(
-                        #         update(BackupMain)
-                        #         .where(BackupMain.id == float(j_sta))
-                        #         .values(
-                        #             size=BackupMain.size
-                        #             + os.path.getsize(output_file_path)
-                        #         )
-                        #     )
-                        # except Exception as dw:
-                        #     print("ERRRR updating: " + str(dw))
 
                     try:
                         if bNoBackup:
@@ -6818,34 +6644,57 @@ def save_final(
                             xdone_all = done_all
                         else:
                             xsum_all = total_chunks
-                            # xsum_done, xdone_all = get_save_stats(
-                            #     file_name, total_chunks, tcc, abort, epc,tccsrc=tccsrc,tfi=tfi
-                            # )
                             xsum_done=xsum_chunks
                             xdone_all = (xsum_done*100)/total_chunks
                             if file_id:
                                 backup_logs_id=file_id
 
-                        sql_logs = (
-    "INSERT OR REPLACE INTO backups ("
-    "id, name, date_time, from_computer, from_path, data_repo, "
-    "mime_type, file_name, full_file_name, size, log, pNameText, "
-    "pIdText, bkupType, sum_all, sum_done, done_all, status, "
-    "mode, data_repod, repid, fidi"
-    ") VALUES ("
-    f"{backup_logs_id}, {float(j_sta)}, {int(time())}, '{epn}', '{tcc}', '{rep}', "
-    f"'{mimet}', '{file_name}', '{os.path.join(tcc, file_name)}', "
-    f"{stat.get('size', 1)}, "
-    f"'{json.dumps(new_item)}', "
-    f"'{pNameText}', '{pIdText}', '{bkupType}', "
-    f"{xsum_all}, {xsum_done}, '{xdone_all}', 'xdone_all', "
-    "'xdone_all', 'xdone_all', '', '{fidi}'"
-    ")"
-)                       
-                        iretry=3
-                        while iretry>0:
-                            iretry-=1
-                            r = xession.execute_queries([(dbname, [sql_logs])])
+                        if USE_MSSQL:
+                            from FlaskWebProject3.models import BackupLogs as BLModel
+                            iretry = 3
+                            while iretry > 0:
+                                iretry -= 1
+                                try:
+                                    with get_session_for_project(epc) as session:
+                                        bl = BLModel(
+                                            project_id=epc, id=backup_logs_id, name=float(j_sta),
+                                            date_time=int(time()), from_computer=epn, from_path=tccsrc,
+                                            data_repo=rep, mime_type=mimet, file_name=file_name,
+                                            full_file_name=os.path.join(tcc, file_name),
+                                            size=stat.get('size', 1), log=new_item,
+                                            pNameText=pNameText, pIdText=pIdText, bkupType=bkupType,
+                                            sum_all=int(xsum_all), sum_done=int(xsum_done), done_all=xdone_all,
+                                            status='xdone_all', mode='xdone_all', data_repod='xdone_all',
+                                            repid='', fidi=fidi,
+                                        )
+                                        session.merge(bl)
+                                    iretry = 0
+                                    bdone = True
+                                except Exception:
+                                    if iretry <= 0:
+                                        raise
+                                    sleep(2.0)
+                        else:
+                            sql_logs = (
+                                "INSERT OR REPLACE INTO backups ("
+                                "id, name, date_time, from_computer, from_path, data_repo, "
+                                "mime_type, file_name, full_file_name, size, log, pNameText, "
+                                "pIdText, bkupType, sum_all, sum_done, done_all, status, "
+                                "mode, data_repod, repid, fidi"
+                                ") VALUES ("
+                                f"{backup_logs_id}, {float(j_sta)}, {int(time())}, '{epn}', '{tcc}', '{rep}', "
+                                f"'{mimet}', '{file_name}', '{os.path.join(tcc, file_name)}', "
+                                f"{stat.get('size', 1)}, "
+                                f"'{json.dumps(new_item)}', "
+                                f"'{pNameText}', '{pIdText}', '{bkupType}', "
+                                f"{xsum_all}, {xsum_done}, '{xdone_all}', 'xdone_all', "
+                                "'xdone_all', 'xdone_all', '', '" + str(fidi).replace("'", "''") + "'"
+                                ")"
+                            )
+                            iretry=3
+                            while iretry>0:
+                                iretry-=1
+                            r = execute_queries_sqlite([(dbname, [sql_logs])])
                             if not "success" in str(r).lower():
                                 sleep(2.0)
                                 bdone=False
@@ -6858,7 +6707,6 @@ def save_final(
                         print(str("########################"))
                         print(str(ssees))
                         print(str("########################"))
-                        # xession.rollback()
 
                 except Exception as ser:
                     logger.error(f"Error: {str(ser)}")
@@ -7892,18 +7740,8 @@ def save_savelogdata(
         logger.warning(f"Error comes in savelogdata, backup name: {pNameText} and error: {str(exp)}")
         print(str(exp))
 
-    # from sqlalchemy import create_engine
-    # from sqlalchemy.orm import sessionmaker
-    # from module2 import BackupLogs, BackupMain
-    # from datetime import date
-
-    # var = BackupLogs()
-    # engine = create_engine(f"sqlite:///{epc}.db")
-    # Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    # xession = Session()
-    from sqlite_managerA import SQLiteManager
     from module2 import create_database
-    xession = SQLiteManager()
+    project_id = epc
     dbname = os.path.join(app.config["location"], epc)
     # Ensure DB has backups_M (and related tables) so INSERT succeeds (e.g. for GDrive backup)
     try:
@@ -7979,38 +7817,62 @@ def save_savelogdata(
                     "isMetaFile": isMetaFile,
                 }
                 data_repod_val = json.dumps(_data_repod_obj).replace("'", "''")
-            sql_main = (
-                "INSERT INTO backups_M ("
-                "id, date_time, from_computer, from_path, file_name, "
-                "data_repo, mime_type, size, pNameText, pIdText, "
-                "bkupType, sum_all, sum_done, done_all, mode, status, data_repod"
-                ") VALUES ("
-                f"{float(j_sta)}, {time()}, '{epn}', '{tccsrc}', "
-                f"'{file_name if mimet=='file' else ''}', "
-                f"'{rep}', '{mimet}', {size_val}, "
-                f"'{pNameText}', '{pIdText}', '{bkupType}', "
-                f"{int(totalfiles)}, {int(currentfile)}, 1, "
-                f"'{mode_m}', '{status_m}', '{data_repod_val}'"
-                ") ON CONFLICT(id) DO UPDATE SET "
-                "date_time=excluded.date_time, "
-                "from_computer=excluded.from_computer, "
-                "from_path=excluded.from_path, "
-                "file_name=excluded.file_name, "
-                "data_repo=excluded.data_repo, "
-                "mime_type=excluded.mime_type, "
-                "size=excluded.size, "
-                "pNameText=excluded.pNameText, "
-                "pIdText=excluded.pIdText, "
-                "bkupType=excluded.bkupType, "
-                "sum_all=excluded.sum_all, "
-                "sum_done=excluded.sum_done, "
-                "done_all=excluded.done_all, "
-                "mode=excluded.mode, "
-                "status=excluded.status, "
-                "data_repod=excluded.data_repod"
-            )
-
-            xession.execute_queries([(dbname, [sql_main])])
+            if USE_MSSQL:
+                from FlaskWebProject3.models import BackupMain as BMModel
+                with get_session_for_project(project_id) as session:
+                    bm = BMModel(
+                        project_id=project_id,
+                        id=float(j_sta),
+                        date_time=time(),
+                        from_computer=epn,
+                        from_path=tccsrc,
+                        file_name=file_name if mimet == 'file' else '',
+                        data_repo=rep,
+                        mime_type=mimet,
+                        size=size_val,
+                        pNameText=pNameText,
+                        pIdText=pIdText,
+                        bkupType=bkupType,
+                        sum_all=int(totalfiles),
+                        sum_done=int(currentfile),
+                        done_all=1,
+                        mode=mode_m,
+                        status=status_m,
+                        data_repod=data_repod_val,
+                    )
+                    session.merge(bm)
+            else:
+                sql_main = (
+                    "INSERT INTO backups_M ("
+                    "id, date_time, from_computer, from_path, file_name, "
+                    "data_repo, mime_type, size, pNameText, pIdText, "
+                    "bkupType, sum_all, sum_done, done_all, mode, status, data_repod"
+                    ") VALUES ("
+                    f"{float(j_sta)}, {time()}, '{epn}', '{tccsrc}', "
+                    f"'{file_name if mimet=='file' else ''}', "
+                    f"'{rep}', '{mimet}', {size_val}, "
+                    f"'{pNameText}', '{pIdText}', '{bkupType}', "
+                    f"{int(totalfiles)}, {int(currentfile)}, 1, "
+                    f"'{mode_m}', '{status_m}', '{data_repod_val}'"
+                    ") ON CONFLICT(id) DO UPDATE SET "
+                    "date_time=excluded.date_time, "
+                    "from_computer=excluded.from_computer, "
+                    "from_path=excluded.from_path, "
+                    "file_name=excluded.file_name, "
+                    "data_repo=excluded.data_repo, "
+                    "mime_type=excluded.mime_type, "
+                    "size=excluded.size, "
+                    "pNameText=excluded.pNameText, "
+                    "pIdText=excluded.pIdText, "
+                    "bkupType=excluded.bkupType, "
+                    "sum_all=excluded.sum_all, "
+                    "sum_done=excluded.sum_done, "
+                    "done_all=excluded.done_all, "
+                    "mode=excluded.mode, "
+                    "status=excluded.status, "
+                    "data_repod=excluded.data_repod"
+                )
+                execute_queries_sqlite([(dbname, [sql_main])])
             logger.info(f"Save data successfully in the database backup main, Backup Name: {pNameText}")
         except Exception as ssees:
             print(str("#### ssees ####################"))
@@ -8062,29 +7924,67 @@ def save_savelogdata(
             # xession.merge(record2)
             # xession.commit()]
             log_escaped = json.dumps(new_item).replace("'", "''")
-            sql_logs = (
-                "INSERT OR REPLACE INTO backups ("
-                "id, name, date_time, from_computer, from_path, data_repo, "
-                "mime_type, file_name, full_file_name, size, log, pNameText, "
-                "pIdText, bkupType, sum_all, sum_done, done_all, mode, status"
-                ") VALUES ("
-                f"{backup_logs_id}, {float(j_sta)}, {int(time())}, '{epn}', '{tccsrc}', '{rep}', "
-                f"'', '{file_name}', '{os.path.join(tcc, file_name)}', "
-                f"{size_val}, '{log_escaped}', "
-                f"'{pNameText}', '{pIdText}', '{bkupType}', "
-                f"{int(xsum_all)}, {int(xsum_done)}, '{xdone_all}', '{mode_t}', '{status_t}'"
-                ")"
-            )
-            iretry=3
-            while iretry>0:
-                iretry-=1
-                r = xession.execute_queries([(dbname, [sql_logs])])
-                if not "success" in str(r).lower():
-                    sleep(2.0)
-                else:
-                    iretry=0
-                    sql_logs=None 
-            print(r)
+            if USE_MSSQL:
+                from FlaskWebProject3.models import BackupLogs as BLModel
+                iretry = 3
+                while iretry > 0:
+                    iretry -= 1
+                    try:
+                        with get_session_for_project(project_id) as session:
+                            bl = BLModel(
+                                project_id=project_id,
+                                id=backup_logs_id,
+                                name=float(j_sta),
+                                date_time=int(time()),
+                                from_computer=epn,
+                                from_path=tccsrc,
+                                data_repo=rep,
+                                mime_type="",
+                                file_name=file_name,
+                                full_file_name=os.path.join(tcc, file_name),
+                                size=size_val,
+                                log=new_item,
+                                pNameText=pNameText,
+                                pIdText=pIdText,
+                                bkupType=bkupType,
+                                sum_all=int(xsum_all),
+                                sum_done=int(xsum_done),
+                                done_all=xdone_all,
+                                mode=mode_t,
+                                status=status_t,
+                            )
+                            session.merge(bl)
+                        iretry = 0
+                        r = "success"
+                    except Exception:
+                        if iretry <= 0:
+                            raise
+                        sleep(2.0)
+                print(r)
+            else:
+                sql_logs = (
+                    "INSERT OR REPLACE INTO backups ("
+                    "id, name, date_time, from_computer, from_path, data_repo, "
+                    "mime_type, file_name, full_file_name, size, log, pNameText, "
+                    "pIdText, bkupType, sum_all, sum_done, done_all, mode, status"
+                    ") VALUES ("
+                    f"{backup_logs_id}, {float(j_sta)}, {int(time())}, '{epn}', '{tccsrc}', '{rep}', "
+                    f"'', '{file_name}', '{os.path.join(tcc, file_name)}', "
+                    f"{size_val}, '{log_escaped}', "
+                    f"'{pNameText}', '{pIdText}', '{bkupType}', "
+                    f"{int(xsum_all)}, {int(xsum_done)}, '{xdone_all}', '{mode_t}', '{status_t}'"
+                    ")"
+                )
+                iretry = 3
+                while iretry > 0:
+                    iretry -= 1
+                    r = execute_queries_sqlite([(dbname, [sql_logs])])
+                    if not "success" in str(r).lower():
+                        sleep(2.0)
+                    else:
+                        iretry = 0
+                        sql_logs = None
+                print(r)
             logger.info(f"Save data successfully in the database backup logs, Backup Name: {pNameText}")
         except Exception as ssees:
             print(str("########################"))
@@ -8120,29 +8020,38 @@ def save_savelogdata(
 
         # xession.commit()
         # Include UNC in backup progress aggregation - UNC backups now properly tracked
-        sql_sum = (
-            "SELECT id, SUM(sum_all), SUM(sum_done) "
-            f"FROM backups WHERE name = {float(j_sta)} "
-            "GROUP BY id ORDER BY id DESC"
-        )
-
-        res = xession.execute_queries([(dbname, [sql_sum])])
-        if dbname in res:
-            rows = res[dbname][0][1]  # list of (id, sum_all, sum_done)
-
-            updates = []
-            for rid, sumall, sumdone in rows:
-                # updates.append(
-                #     f"UPDATE backups_M SET sum_all={int(sumall)}, sum_done={int(sumdone)} "
-                #     f"WHERE id={float(rid)}"
-                # )
-                updates.append(
-                    f"UPDATE backups_M SET sum_done={int(sumdone)} "
-                    f"WHERE id={float(rid)}"
-                )
-
-            if updates:
-                xession.execute_queries([(dbname, updates)])
+        if USE_MSSQL:
+            from sqlalchemy import func
+            from FlaskWebProject3.models import BackupLogs as BLModel, BackupMain as BMModel
+            with get_session_for_project(project_id) as session:
+                rows = session.query(
+                    BLModel.id,
+                    func.sum(BLModel.sum_all).label("sumall"),
+                    func.sum(BLModel.sum_done).label("sumdone"),
+                ).filter(
+                    BLModel.project_id == project_id,
+                    BLModel.name == float(j_sta),
+                ).group_by(BLModel.id).order_by(BLModel.id.desc()).all()
+                for row in rows:
+                    session.query(BMModel).filter(
+                        BMModel.project_id == project_id,
+                        BMModel.id == row.id,
+                    ).update({"sum_done": int(row.sumdone)}, synchronize_session=False)
+        else:
+            sql_sum = (
+                "SELECT id, SUM(sum_all), SUM(sum_done) "
+                f"FROM backups WHERE name = {float(j_sta)} "
+                "GROUP BY id ORDER BY id DESC"
+            )
+            res = execute_queries_sqlite([(dbname, [sql_sum])])
+            if dbname in res:
+                rows = res[dbname][0][1]
+                updates = [
+                    f"UPDATE backups_M SET sum_done={int(sumdone)} WHERE id={float(rid)}"
+                    for rid, sumall, sumdone in rows
+                ]
+                if updates:
+                    execute_queries_sqlite([(dbname, updates)])
     except Exception as ser:
         logger.error(f"Unhandled error in save_savelogdata ({pNameText}): {ser}")
     # xession.close()
@@ -8173,8 +8082,7 @@ def save_saveinit_log():
     totalfiles = meta_data.get("totalfiles")
     j_sta = meta_data.get("id")
 
-    from sqlite_managerA import SQLiteManager
-    xession = SQLiteManager()
+    project_id = epc
     dbname = os.path.join(app.config["location"], epc)
     create_database(dbname)
 
@@ -8260,18 +8168,79 @@ def save_saveinit_log():
         logger.warning(f"Unhandled error in save_initlog ({pNameText}): {ser}")
 
     sql_logs = (
-    "INSERT INTO backups ("
-    "id, name, date_time, from_computer, from_path, data_repo, "
-    "mime_type, file_name, full_file_name, size, log, pNameText, "
-    "pIdText, bkupType, sum_all, sum_done, done_all, mode, status"
-    ") VALUES "
-    + ", ".join(values_list)
+        "INSERT INTO backups ("
+        "id, name, date_time, from_computer, from_path, data_repo, "
+        "mime_type, file_name, full_file_name, size, log, pNameText, "
+        "pIdText, bkupType, sum_all, sum_done, done_all, mode, status"
+        ") VALUES "
+        + ", ".join(values_list)
     )
 
     try:
-        r = xession.execute_queries([(dbname, [sql_main,sql_logs])])
-        print(r)
-    except:
+        if USE_MSSQL:
+            from FlaskWebProject3.models import BackupLogs as BLModel, BackupMain as BMModel
+            with get_session_for_project(project_id) as session:
+                # BackupMain: one record for j_sta
+                tccsrc = os.path.join(epc, str(meta_data.get("src_location", "")).replace(":", "{{DRIVE}}"))
+                fl = file_list[-1] if file_list else {}
+                file_name = os.path.basename(fl.get('path', ''))
+                size_val = fl.get('size', 0)
+                bm = BMModel(
+                    project_id=project_id,
+                    id=float(j_sta),
+                    date_time=time(),
+                    from_computer=epn,
+                    from_path=tccsrc,
+                    file_name=file_name if mimet == 'file' else '',
+                    data_repo=rep,
+                    mime_type=mimet,
+                    size=size_val,
+                    pNameText=pNameText,
+                    pIdText=pIdText,
+                    bkupType=bkupType,
+                    sum_all=int(totalfiles),
+                    sum_done=0,
+                    done_all=0,
+                    mode='',
+                    status='',
+                    data_repod='',
+                )
+                session.merge(bm)
+                for file in file_list:
+                    backup_logs_id = file['id']
+                    tccsrc = os.path.join(epc, str(meta_data.get("src_location", "")).replace(":", "{{DRIVE}}"))
+                    size_val = file['size']
+                    file_name = os.path.basename(file['path'])
+                    tcc = os.path.dirname(file['path'])
+                    bl = BLModel(
+                        project_id=project_id,
+                        id=backup_logs_id,
+                        name=float(j_sta),
+                        date_time=int(time()),
+                        from_computer=epn,
+                        from_path=tccsrc,
+                        data_repo=rep,
+                        mime_type="",
+                        file_name=file_name,
+                        full_file_name=os.path.join(tcc, file_name),
+                        size=size_val,
+                        log={},
+                        pNameText=pNameText,
+                        pIdText=pIdText,
+                        bkupType=bkupType,
+                        sum_all=0,
+                        sum_done=0,
+                        done_all='',
+                        mode='',
+                        status='',
+                    )
+                    session.merge(bl)
+            r = "success"
+            print(r)
+        else:
+            r = execute_queries_sqlite([(dbname, [sql_main, sql_logs])])
+            print(r)
+    except Exception:
         pass
     # try:
     #     sktio.emit(
@@ -8297,19 +8266,33 @@ def save_saveinit_log():
     #     pass
     return 'success',200
 
-def update_filebackup_counts(
-    jobid,
-    epc
-):
-
-   
-
-    from sqlalchemy import select, update,text
+def update_filebackup_counts(jobid, epc):
+    project_id = epc
+    if USE_MSSQL:
+        from sqlalchemy import func
+        from FlaskWebProject3.models import BackupLogs as BLModel, BackupMain as BMModel
+        with get_session_for_project(project_id) as xession:
+            result = (
+                xession.query(
+                    BLModel.id,
+                    func.sum(BLModel.sum_all).label("sumall"),
+                    func.sum(BLModel.sum_done).label("sumdone"),
+                )
+                .filter(BLModel.project_id == project_id, BLModel.name == float(jobid))
+                .group_by(BLModel.id)
+                .order_by(BLModel.id.desc())
+                .all()
+            )
+            for row in result:
+                xession.query(BMModel).filter(
+                    BMModel.project_id == project_id, BMModel.id == row.id
+                ).update({"sum_all": int(row.sumall), "sum_done": int(row.sumdone)}, synchronize_session=False)
+        return
+    from sqlalchemy import select, update, text
     from sqlalchemy import create_engine, Column, Integer, Float, func
     from sqlalchemy.orm import sessionmaker, declarative_base
     from module2 import BackupLogs, BackupMain
     from datetime import date
-    var = BackupLogs()
     engine = create_engine(f"sqlite:///{epc}.db")
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     xession = Session()
@@ -8441,18 +8424,27 @@ def get_restpre_file_data():
     obj = request.json.get("obj", None)
     dbname = os.path.join(app.config["location"], obj)
     
+    project_id = obj
     bType = request.json.get("bType", None)
     if bType:
-        engine = create_engine(f"sqlite:///{obj}.db")
-        Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-        xession = Session()
-        q = xession.query(BackupLogs).filter(
+        if USE_MSSQL:
+            with get_session_for_project(project_id) as xession:
+                q = xession.query(BackupLogs).filter(
+                    BackupLogs.project_id == project_id,
+                    BackupLogs.sum_all == BackupLogs.sum_done,
+                    BackupLogs.pIdText == str(backup_pid),
+                    BackupLogs.full_file_name == str(str(obj) + os.sep + file_name).replace(":", "{{DRIVE}}"),
+                    BackupLogs.id == bType,
+                )
+        else:
+            engine = create_engine(f"sqlite:///{obj}.db")
+            Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+            xession = Session()
+            q = xession.query(BackupLogs).filter(
             BackupLogs.sum_all == BackupLogs.sum_done,
             BackupLogs.pIdText == str(backup_pid),
-            BackupLogs.full_file_name== str(str(obj) + os.sep +file_name).replace(":","{{DRIVE}}"), #) file_name,#os.path.join(tcc, file_name),
-            #BackupLogs.size>0,
+            BackupLogs.full_file_name== str(str(obj) + os.sep +file_name).replace(":","{{DRIVE}}"),
             BackupLogs.id == bType,
-            #BackupLogs.fidi==fidi,
         )
         if q:
             if len(q.all())> 1:
@@ -8476,14 +8468,12 @@ def get_restpre_file_data():
                 return (jsonify(result={"incr":incr,"diff":diff}), 200)
         
         return (jsonify(result={"incr":None,"diff":None}), 401)
-        
-                                    
-    s_manager = SQLiteManager()
 
-    if not backup_pid: #or not file_name or not obj:
-       return 404
-   
-    file_name =  str(file_name).replace("{{DRIVE}}",":")
+    if not backup_pid:
+        return 404
+
+
+    file_name = str(file_name).replace("{{DRIVE}}", ":")
 
     if  str(file_name).startswith(str(obj)):
         file_name =  str(file_name).replace(str(obj)+"\\","")
@@ -8494,54 +8484,92 @@ def get_restpre_file_data():
     q_min = "SELECT pidText, replace(replace(full_file_name,'" + str(str(obj)+"\\") + "',''),'{{DRIVE}}',':') as file_path_name ,name,id,from_computer,min(date_time) as first_c   FROM backups  where pidText = '" + str( backup_pid )+ "' and replace(replace(full_file_name,'" + str(str(obj)+"\\") + "',''),'{{DRIVE}}',':') = '" + file_name + "' and sum_all=sum_done  group by pidText, from_computer,full_file_name"
     q_max = "SELECT pidText, replace(replace(full_file_name,'" + str(str(obj)+"\\") + "',''),'{{DRIVE}}',':') as file_path_name ,name,id,from_computer,max(date_time) as last_c    FROM backups  where pidText = '" + str( backup_pid )+ "' and replace(replace(full_file_name,'" + str(str(obj)+"\\") + "',''),'{{DRIVE}}',':') = '" + file_name + "' and sum_all=sum_done  group by pidText, from_computer,full_file_name"
 
-    file_paths=[]
+    file_paths = []
 
-    
-    qrs = [(dbname,[q_max],)]
-    
-    results = s_manager.execute_queries(qrs)
-    for db_path, db_results in results.items():
-        print(f"Results for {db_path}:")
-        for i, (result, records) in enumerate(db_results):
-            print(f"  Query {i+1}: {result}")
-            if result == "Success":
-                if records is not None:
-                    for file in records:
-                        file_paths.append(dict(pidText =file[0], file_path_name=file[1],name =file[2],id =file[3],from_computer =file[4],first_c =0,last_c=file[5]))
-                    print(f"    Records: {records}")
-    
-    qrs = [(dbname,[q_min],)]
-    try:
-        results = s_manager.execute_queries(qrs)
+    if USE_MSSQL:
+        from sqlalchemy import func
+        with get_session_for_project(project_id) as session:
+            _fn_norm = (str(obj) + os.sep).replace("\\", "\\\\")
+            _ff = (str(obj) + os.sep + file_name).replace(":", "{{DRIVE}}")
+            q_max_r = session.query(
+                BackupLogs.pIdText, BackupLogs.full_file_name, BackupLogs.name, BackupLogs.id,
+                BackupLogs.from_computer, func.max(BackupLogs.date_time).label("last_c")
+            ).filter(
+                BackupLogs.project_id == project_id,
+                BackupLogs.pIdText == str(backup_pid),
+                BackupLogs.sum_all == BackupLogs.sum_done,
+            ).filter(
+                func.replace(func.replace(BackupLogs.full_file_name, _fn_norm, ""), "{{DRIVE}}", ":") == file_name
+            ).group_by(BackupLogs.pIdText, BackupLogs.from_computer, BackupLogs.full_file_name).all()
+            for r in q_max_r:
+                fp = (r.full_file_name or "").replace(_fn_norm, "").replace("{{DRIVE}}", ":")
+                file_paths.append(dict(pidText=r.pIdText, file_path_name=fp, name=r.name, id=r.id, from_computer=r.from_computer, first_c=0, last_c=r.last_c))
+            q_min_r = session.query(
+                BackupLogs.pIdText, BackupLogs.full_file_name, BackupLogs.name, BackupLogs.id,
+                BackupLogs.from_computer, func.min(BackupLogs.date_time).label("first_c")
+            ).filter(
+                BackupLogs.project_id == project_id,
+                BackupLogs.pIdText == str(backup_pid),
+                BackupLogs.sum_all == BackupLogs.sum_done,
+            ).filter(
+                func.replace(func.replace(BackupLogs.full_file_name, _fn_norm, ""), "{{DRIVE}}", ":") == file_name
+            ).group_by(BackupLogs.pIdText, BackupLogs.from_computer, BackupLogs.full_file_name).all()
+            for r in q_min_r:
+                fp = (r.full_file_name or "").replace(_fn_norm, "").replace("{{DRIVE}}", ":")
+                file_paths.append(dict(pidText=r.pIdText, file_path_name=fp, name=r.name, id=r.id, from_computer=r.from_computer, first_c=r.first_c, last_c=0))
+    else:
+        qrs = [(dbname, [q_max])]
+        results = execute_queries_sqlite(qrs)
         for db_path, db_results in results.items():
-            print(f"Results for {db_path}:")
             for i, (result, records) in enumerate(db_results):
-                print(f"  Query {i+1}: {result}")
                 if result == "Success":
                     if records is not None:
                         for file in records:
-                            file_paths.append(dict(pidText =file[0], file_path_name=file[1],name =file[2],id =file[3],from_computer =file[4],first_c =file[5],last_c=0))
-                        print(f"    Records: {records}")
-    except:
-        print("")
-    # GDrive/cloud fallback: when backups is empty, query backups_M for file metadata
+                            file_paths.append(dict(pidText=file[0], file_path_name=file[1], name=file[2], id=file[3], from_computer=file[4], first_c=0, last_c=file[5]))
+        qrs = [(dbname, [q_min])]
+        try:
+            results = execute_queries_sqlite(qrs)
+            for db_path, db_results in results.items():
+                for i, (result, records) in enumerate(db_results):
+                    if result == "Success" and records:
+                        for file in records:
+                            file_paths.append(dict(pidText=file[0], file_path_name=file[1], name=file[2], id=file[3], from_computer=file[4], first_c=file[5], last_c=0))
+        except Exception:
+            pass
+    # GDrive/cloud fallback
     if not file_paths and backup_pid and file_name:
         _fn_esc = str(os.path.basename(file_name)).replace("'", "''")
         _fn_full_esc = str(file_name).replace("'", "''")
-        q_bm = (
-            "SELECT pIdText, COALESCE(from_path || char(92) || file_name, file_name, from_path) as file_path_name, "
-            "id, id, from_computer, date_time as first_c, date_time as last_c "
-            "FROM backups_M WHERE pIdText = '" + str(backup_pid).replace("'", "''") + "' "
-            "AND data_repo IN ('GDRIVE','GOOGLEDRIVE','AWSS3','AZURE','ONEDRIVE') "
-            "AND (file_name = '" + _fn_esc + "' OR (from_path || char(92) || file_name) = '" + _fn_full_esc + "')"
-        )
         try:
-            qrs_bm = [(dbname, [q_bm])]
-            res_bm = s_manager.execute_queries(qrs_bm)
-            db_res = res_bm.get(dbname, [])
-            if db_res and db_res[0][0] == "Success" and db_res[0][1]:
-                for row in db_res[0][1]:
-                    file_paths.append(dict(pidText=row[0], file_path_name=row[1], name=row[2], id=row[3], from_computer=row[4], first_c=row[5] or 0, last_c=row[6] or 0))
+            if USE_MSSQL:
+                with get_session_for_project(project_id) as session:
+                    from sqlalchemy import or_, func
+                    bms = session.query(BackupMain).filter(
+                        BackupMain.project_id == project_id,
+                        BackupMain.pIdText == str(backup_pid).replace("'", "''"),
+                        BackupMain.data_repo.in_(['GDRIVE', 'GOOGLEDRIVE', 'AWSS3', 'AZURE', 'ONEDRIVE']),
+                        or_(
+                            BackupMain.file_name == _fn_esc,
+                            func.concat(BackupMain.from_path, os.sep, BackupMain.file_name) == _fn_full_esc
+                        )
+                    ).all()
+                    for bm in bms:
+                        fp = (bm.from_path or "") + (os.sep if bm.file_name else "") + (bm.file_name or bm.from_path or "")
+                        file_paths.append(dict(pidText=bm.pIdText, file_path_name=fp, name=bm.id, id=bm.id, from_computer=bm.from_computer, first_c=bm.date_time or 0, last_c=bm.date_time or 0))
+            elif not USE_MSSQL:
+                q_bm = (
+                    "SELECT pIdText, COALESCE(from_path || char(92) || file_name, file_name, from_path) as file_path_name, "
+                    "id, id, from_computer, date_time as first_c, date_time as last_c "
+                    "FROM backups_M WHERE pIdText = '" + str(backup_pid).replace("'", "''") + "' "
+                    "AND data_repo IN ('GDRIVE','GOOGLEDRIVE','AWSS3','AZURE','ONEDRIVE') "
+                    "AND (file_name = '" + _fn_esc + "' OR (from_path || char(92) || file_name) = '" + _fn_full_esc + "')"
+                )
+                qrs_bm = [(dbname, [q_bm])]
+                res_bm = execute_queries_sqlite(qrs_bm)
+                db_res = res_bm.get(dbname, [])
+                if db_res and db_res[0][0] == "Success" and db_res[0][1]:
+                    for row in db_res[0][1]:
+                        file_paths.append(dict(pidText=row[0], file_path_name=row[1], name=row[2], id=row[3], from_computer=row[4], first_c=row[5] or 0, last_c=row[6] or 0))
         except Exception:
             pass
     return (jsonify(result=file_paths), 200)
@@ -8693,76 +8721,107 @@ def get_restore_data():
     if selectedAction == "browse" or selectedAction == "restore":
 
         selectedId = request.json.get("id", "0")
-        s_manager = SQLiteManager()
         location_dir = app.config.get("location") or os.getcwd()
         dbname = os.path.join(location_dir, obj)
+        project_id = obj
 
-        # Query backups_M (GDrive/cloud metadata) first; fall back to "backups" for legacy LAN
-        qry_m = (
-            "SELECT from_path, file_name FROM backups_M WHERE "
-            + "id = " + str(selectedId)
-            + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
-        )
-        if not all_types and all_selected_types:
-            qry_m += " AND (" + " OR ".join(
-                [f"file_name LIKE '%{name.replace(chr(39), chr(39)+chr(39))}'" for name in all_selected_types]
-            ) + ")"
-
-        # Try multiple DB paths (no extension, .db, etc.) so we find the file that has backups_M
-        exts = ["", ".db", ".sqlite", ".sqlite3", ".db3"]
-        bases = [obj, request.json.get("agentName")]
-        candidate_paths = []
-        for b in bases:
-            if not b:
-                continue
-            for e in exts:
-                candidate_paths.append(os.path.join(location_dir, b + e))
-        if dbname not in candidate_paths:
-            candidate_paths.insert(0, dbname)
-
-        for candidate in candidate_paths:
-            if not os.path.isfile(candidate):
-                continue
-            try:
-                qrs = [(candidate, [qry_m])]
-                try_results = s_manager.execute_queries(qrs)
-            except Exception:
-                continue
-            if candidate not in try_results or len(try_results[candidate]) == 0:
-                continue
-            status, records = try_results[candidate][0]
-            if status == "Success" and records:
-                for row in records:
+        if USE_MSSQL and project_id:
+            # Query backups_M (GDrive/cloud metadata) first; fall back to "backups" for legacy LAN
+            with get_session_for_project(project_id) as session:
+                from FlaskWebProject3.models import BackupMain as BMModel, BackupLogs as BLModel
+                from sqlalchemy import or_
+                q = session.query(BMModel.from_path, BMModel.file_name).filter(
+                    BMModel.project_id == project_id,
+                    BMModel.id == float(selectedId),
+                    BMModel.data_repo == str(selectedStorageType).replace("'", "''"),
+                )
+                if not all_types and all_selected_types:
+                    q = q.filter(or_(*[BMModel.file_name.like(f"%{n.replace(chr(39), chr(39)+chr(39))}") for n in all_selected_types]))
+                bms = q.all()
+                for row in bms:
                     from_path, file_name = (row[0] or ""), (row[1] or "")
                     path = (from_path + os.sep + file_name) if file_name else from_path
                     if path:
                         file_paths.append(path)
-                break
-
-        # Fallback: query legacy "backups" table (LAN backups)
-        if not file_paths:
-            qry = (
-                "SELECT replace(replace(full_file_name,'',''), '"
-                + os.path.join(obj, "").replace("'", "''") + "','') FROM backups WHERE "
-                + "name = " + str(selectedId)
+                if not file_paths:
+                    qbl = session.query(BLModel.full_file_name).filter(
+                        BLModel.project_id == project_id,
+                        BLModel.name == float(selectedId),
+                        BLModel.data_repo == str(selectedStorageType).replace("'", "''"),
+                    )
+                    if not all_types and all_selected_types:
+                        qbl = qbl.filter(or_(*[BLModel.full_file_name.like(f"%{n.replace(chr(39), chr(39)+chr(39))}") for n in all_selected_types]))
+                    bl_rows = qbl.all()
+                    _prefix = (os.path.join(obj, "")).replace("'", "''")
+                    for row in bl_rows:
+                        fn = (row[0] or "").replace(_prefix, "").replace("{{DRIVE}}", ":")
+                        if fn:
+                            file_paths.append(fn)
+        elif not USE_MSSQL:
+            # Query backups_M (GDrive/cloud metadata) first; fall back to "backups" for legacy LAN
+            qry_m = (
+                "SELECT from_path, file_name FROM backups_M WHERE "
+                + "id = " + str(selectedId)
                 + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
             )
             if not all_types and all_selected_types:
+                qry_m += " AND (" + " OR ".join(
+                    [f"file_name LIKE '%{name.replace(chr(39), chr(39)+chr(39))}'" for name in all_selected_types]
+                ) + ")"
+
+            exts = ["", ".db", ".sqlite", ".sqlite3", ".db3"]
+            bases = [obj, request.json.get("agentName")]
+            candidate_paths = []
+            for b in bases:
+                if not b:
+                    continue
+                for e in exts:
+                    candidate_paths.append(os.path.join(location_dir, b + e))
+            if dbname not in candidate_paths:
+                candidate_paths.insert(0, dbname)
+
+            for candidate in candidate_paths:
+                if not os.path.isfile(candidate):
+                    continue
+                try:
+                    qrs = [(candidate, [qry_m])]
+                    try_results = execute_queries_sqlite(qrs)
+                except Exception:
+                    continue
+                if candidate not in try_results or len(try_results[candidate]) == 0:
+                    continue
+                status, records = try_results[candidate][0]
+                if status == "Success" and records:
+                    for row in records:
+                        from_path, file_name = (row[0] or ""), (row[1] or "")
+                        path = (from_path + os.sep + file_name) if file_name else from_path
+                        if path:
+                            file_paths.append(path)
+                    break
+
+            if not file_paths:
                 qry = (
                     "SELECT replace(replace(full_file_name,'',''), '"
-                    + os.path.join(obj, "").replace("'", "''") + "','') as xs FROM backups WHERE "
+                    + os.path.join(obj, "").replace("'", "''") + "','') FROM backups WHERE "
                     + "name = " + str(selectedId)
-                    + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "' "
-                    + " AND (" + " OR ".join([f"full_file_name LIKE '%{n.replace(chr(39), chr(39)+chr(39))}'" for n in all_selected_types]) + ")"
+                    + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
                 )
-            qrs = [(dbname, [qry])]
-            results = s_manager.execute_queries(qrs)
-            for db_path, db_results in results.items():
-                for i, (res, recs) in enumerate(db_results):
-                    if res == "Success" and recs:
-                        for file in recs:
-                            file_paths.append(file[0])
-                        break
+                if not all_types and all_selected_types:
+                    qry = (
+                        "SELECT replace(replace(full_file_name,'',''), '"
+                        + os.path.join(obj, "").replace("'", "''") + "','') as xs FROM backups WHERE "
+                        + "name = " + str(selectedId)
+                        + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "' "
+                        + " AND (" + " OR ".join([f"full_file_name LIKE '%{n.replace(chr(39), chr(39)+chr(39))}'" for n in all_selected_types]) + ")"
+                    )
+                qrs = [(dbname, [qry])]
+                results = execute_queries_sqlite(qrs)
+                for db_path, db_results in results.items():
+                    for i, (res, recs) in enumerate(db_results):
+                        if res == "Success" and recs:
+                            for file in recs:
+                                file_paths.append(file[0])
+                            break
 
         backup_jobs_json = build_json_responseX(file_paths)
         if selectedAction == "browse":
@@ -8827,14 +8886,13 @@ def get_restore_data():
                 #RestoreLocation = os.path.join( RestoreLocation, os.path.basename(targetLocation))
                 RestoreLocation = RestoreLocation
             
-            # targetLocation = os.path.sep.join(targetLocation.split(os.path.sep)[0:], "")
-            # RestoreLocation = os.path.sep.join(
-            #     RestoreLocation.split(os.path.sep)[0:], ""
-            # )
-            # targetLocation = os.path.sep.join(targetLocation.split(os.path.sep)[0:], "")
-            # RestoreLocation = os.path.sep.join(
-            #     RestoreLocation.split(os.path.sep)[0:], ""
-            # )
+            # Normalize paths: strip trailing backslash (avoids treating file path as directory)
+            def _norm_file_path(p):
+                if not p or not isinstance(p, str):
+                    return p
+                return p.rstrip(os.sep).rstrip("/")
+            targetLocation = _norm_file_path(targetLocation)
+            RestoreLocation = _norm_file_path(RestoreLocation)
 
             k_qresults=[]
             qresults=[]
@@ -8867,10 +8925,10 @@ def get_restore_data():
                 # file_paths = cursor.fetchall()
                 # cursor.close()
                 # conn.close()
-                s_manager = SQLiteManager()
+                project_id = obj
                 dbname = os.path.join(app.config["location"], obj)
-                files=""
-                backups_query=[]
+                files = ""
+                backups_query = []
                 # if len(selectedFiles) <= 0:
                 #     selectedFiles = file_paths
                 #     if not all_types:
@@ -8930,49 +8988,76 @@ def get_restore_data():
                                 + " and (from_path like '" + os.path.join(f"{obj}", fpath.replace(":", "{{DRIVE}}"))+ "%') "
                                 )
 
-                qrs = [
-                        (
-                            dbname,
-                            [
-                                # "SELECT * FROM backups where "
-                                # + "name = " + str(selectedId)
-                                # + " and data_repo = '" + str(selectedStorageType)+ "'"
-                                # + files
-                                " UNION ALL ".join(backups_query)
-                            ,
-                                "SELECT * FROM backups_m where "
-                                + "id = "
-                                + str(selectedId)
-                                + " and data_repo = '"
-                                + str(selectedStorageType)
-                                + "'"
-                                + ""
-                            ],
+                if USE_MSSQL and project_id:
+                    from sqlalchemy import or_
+                    from FlaskWebProject3.models import BackupLogs as BLModel, BackupMain as BMModel
+                    with get_session_for_project(project_id) as session:
+                        base_logs = session.query(BLModel).filter(
+                            BLModel.project_id == project_id,
+                            BLModel.name == float(selectedId),
+                            BLModel.data_repo == str(selectedStorageType),
                         )
-                    ]
-                
-                results = s_manager.execute_queries(qrs)
-                k_qresults=[]
-                for db_path, db_results in results.items():
-                    print(f"Results for {db_path}:")
-                    for i, (result, records) in enumerate(db_results):
-                        print(f"  Query {i+1}: {result}")
-                        if result == "Success":
-                            if records is not None:
-                                #file_paths = [file for file in records]
-                                k_qresults.append([file for file in records])
-                                print(f"    Records: {records}")
-                if len(qresults)==0:
-                    qresults.append(k_qresults[0])
-                    qresults.append(k_qresults[1])
+                        conditions = []
+                        if len(selectedFiles) > 0:
+                            ff_list = [os.path.join(f"{obj}", e.replace(":", "{{DRIVE}}")) for e in selectedFiles]
+                            conditions.append(BLModel.full_file_name.in_(ff_list))
+                        if not all_types and len(selectedFiles) <= 0 and all_selected_types:
+                            conditions.append(or_(*[BLModel.full_file_name.like(f"%{n}") for n in (all_selected_types or [])]))
+                        if len(selectedFolder) > 0 and len(selectedFiles) <= 0:
+                            for fpath in selectedFolder:
+                                conditions.append(BLModel.from_path.like(os.path.join(f"{obj}", fpath.replace(":", "{{DRIVE}}")) + "%"))
+                        if conditions:
+                            base_logs = base_logs.filter(or_(*conditions))
+                        elif len(selectedFiles) <= 0 and len(selectedFolder) <= 0 and (all_types or not all_selected_types):
+                            pass
+                        logs_rows = base_logs.all()
+                        bm_rows = session.query(BMModel).filter(
+                            BMModel.project_id == project_id,
+                            BMModel.id == float(selectedId),
+                            BMModel.data_repo == str(selectedStorageType),
+                        ).all()
+                        def _row_to_dict(r, fpath_val=None):
+                            d = {c.key: getattr(r, c.key) for c in r.__table__.columns}
+                            if fpath_val is not None:
+                                d["fpath"] = fpath_val
+                            return d
+                        k0 = []
+                        for r in logs_rows:
+                            if len(selectedFiles) > 0:
+                                fp = targetLocation.replace(":", "{{DRIVE}}")
+                            elif len(selectedFolder) > 0:
+                                fpath = (selectedFolder or [targetLocation])[0]
+                                fpath_parent = str(PureWindowsPath(os.path.join(f"{obj}", fpath.replace(":", "{{DRIVE}}"))).parent)
+                                fp = targetLocation.replace(":", "{{DRIVE}}") if RestoreLocation == targetLocation else fpath_parent
+                            else:
+                                fp = targetLocation.replace(":", "{{DRIVE}}")
+                            k0.append(_row_to_dict(r, fp))
+                        k1 = [_row_to_dict(r) for r in bm_rows]
+                        if len(qresults) == 0:
+                            qresults.append(k0)
+                            qresults.append(k1)
+                        else:
+                            qresults[0] += k0
+                            qresults[1] = k1
+                        if len(qresults[0]) == 0 and len(qresults[1]) > 0:
+                            qresults[0] = list(qresults[1])
                 else:
-                    qresults[0]+=k_qresults[0]
-                    qresults[1]=k_qresults[1]
-                # GDrive/cloud: Query 1 (backups) is empty, Query 2 (backups_M) has rows – use backups_M as file list
-                if len(qresults[0]) == 0 and len(qresults[1]) > 0:
-                    qresults[0] = list(qresults[1])
-                
-                k_qresults=None
+                    qrs = [(dbname, [" UNION ALL ".join(backups_query), "SELECT * FROM backups_m where id = " + str(selectedId) + " and data_repo = '" + str(selectedStorageType) + "'"])]
+                    results = execute_queries_sqlite(qrs)
+                    k_qresults = []
+                    for db_path, db_results in results.items():
+                        for i, (result, records) in enumerate(db_results):
+                            if result == "Success" and records is not None:
+                                k_qresults.append([file for file in records])
+                    if len(qresults) == 0:
+                        qresults.append(k_qresults[0] if len(k_qresults) > 0 else [])
+                        qresults.append(k_qresults[1] if len(k_qresults) > 1 else [])
+                    else:
+                        qresults[0] += k_qresults[0] if len(k_qresults) > 0 else []
+                        qresults[1] = k_qresults[1] if len(k_qresults) > 1 else qresults[1]
+                    if len(qresults[0]) == 0 and len(qresults[1]) > 0:
+                        qresults[0] = list(qresults[1])
+                    k_qresults = None
 
 
             except Exception as e:
@@ -9103,21 +9188,20 @@ def get_restore_data():
                         ]
                     },
                 )
-                print(
-                    "DDD "
-                    + _tcc_value.replace(
-                        targetLocation.replace(":", "{{DRIVE}}"),
-                        RestoreLocation.replace(":", "{{DRIVE}}"),
-                    )
-                )
+                # Ensure per-record paths have no trailing backslash
+                _tcc_value = _norm_file_path(_tcc_value)
                 sbd=""   #SMB id
-                sbc=""   #SMB pwd   
-                jsrepd = json.loads(rec_dict.get("log", "{}"))
-                try:
-                    if isinstance(jsrepd, str):
-                        jsrepd = json.loads(jsrepd)
-                except:
-                    print(".. .. ..")
+                sbc=""   #SMB pwd
+                log_val = rec_dict.get("log") or "{}"
+                if isinstance(log_val, dict):
+                    jsrepd = log_val
+                elif isinstance(log_val, str):
+                    try:
+                        jsrepd = json.loads(log_val) if log_val.strip() else {}
+                    except Exception:
+                        jsrepd = {}
+                else:
+                    jsrepd = {}
                 # Normalize GDrive gidn_list for restore: old backups may have only gidn (dict) or wrong gidn_list
                 rep_upper_pre = str(selectedStorageType).upper().replace(" ", "")
                 if rep_upper_pre in ["GDRIVE", "GOOGLEDRIVE"] and jsrepd:
@@ -9136,8 +9220,10 @@ def get_restore_data():
                 file_name_for_manifest = rec_dict.get("file_name") or os.path.basename(
                     rec_dict.get("full_file_name", "")
                 )
+                backup_pid = str(rec_dict.get("name", backup_id))
                 tcc_value = _tcc_value
-                manifest_path = _final_manifest_path(tcc_value, file_name_for_manifest, backup_id)
+                tcc_for_manifest = log_val if isinstance(log_val, str) else (json.dumps(log_val, sort_keys=True) if isinstance(log_val, dict) else tcc_value)
+                manifest_path = _final_manifest_path(tcc_for_manifest, file_name_for_manifest, backup_pid)
                 # GDrive/AWS/Azure/OneDrive: no local manifest; use data_repod (already in rec_dict["log"]) for restore
                 rep_upper = str(selectedStorageType).upper().replace(" ", "")
                 is_gdrive_restore = rep_upper in ["GDRIVE", "GOOGLEDRIVE"] and (
@@ -9148,7 +9234,14 @@ def get_restore_data():
                 )
                 # UNC backups store data on remote share - treat like cloud restore (no local manifest)
                 # UNC metadata includes: scombm (host), scombs (share), guid (folder containing chunks)
-                is_unc_restore = rep_upper == "UNC" and jsrepd.get("scombm") and jsrepd.get("scombs")
+                # Accept UNC when we have: chunks, scombm+scombs, total_chunks, or guid (for manifest search)
+                _unc_has_meta = bool(jsrepd.get("scombm") and jsrepd.get("scombs"))
+                _unc_has_chunks = isinstance(jsrepd.get("chunks"), list) and len(jsrepd.get("chunks", [])) > 0
+                _unc_has_total_chunks = int(jsrepd.get("total_chunks", 0) or 0) > 0
+                _unc_has_guid = bool(jsrepd.get("guid"))
+                is_unc_restore = rep_upper == "UNC" and (
+                    _unc_has_meta or _unc_has_chunks or _unc_has_total_chunks or _unc_has_guid
+                )
                 is_cloud_restore = is_gdrive_restore or is_aws_azure_onedrive_restore or is_unc_restore
                 if is_cloud_restore:
                     total_chunks_g = int(jsrepd.get("total_chunks", 1)) or 1
@@ -9169,9 +9262,16 @@ def get_restore_data():
                                 if isinstance(chunk_info, dict):
                                     # Store chunk hash for verification
                                     manifest_data["chunks"][str(idx)] = chunk_info.get("hash", "")
-                            # Store UNC connection info for client to use during restore
-                            manifest_data["unc_host"] = jsrepd.get("scombm", "")
-                            manifest_data["unc_share"] = jsrepd.get("scombs", "")
+                            unc_host = jsrepd.get("scombm") or ""
+                            unc_share = jsrepd.get("scombs") or ""
+                            if not unc_host or not unc_share:
+                                from_computer = str(rec_dict.get("from_computer") or "").strip()
+                                if from_computer and not unc_host:
+                                    unc_host = from_computer
+                                if not unc_share:
+                                    unc_share = "ApnaBackupEP"
+                            manifest_data["unc_host"] = unc_host
+                            manifest_data["unc_share"] = unc_share
                             manifest_data["unc_guid"] = jsrepd.get("guid", "")
                             manifest_data["unc_chunks"] = unc_chunks  # Full chunk info for paths
                             if jsrepd.get("givn"):
@@ -9281,6 +9381,55 @@ def get_restore_data():
                     except Exception:
                         pass
                 else:
+                    manifest_data = {}
+                    if not os.path.exists(manifest_path):
+                        best_manifest = None
+                        try:
+                            upload_root = app.config.get("UPLOAD_FOLDER") or ""
+                            # For UNC, also search temp chunk dir where manifests may be written
+                            search_roots = [upload_root]
+                            if rep_upper == "UNC":
+                                try:
+                                    unc_temp = add_unc_temppath()
+                                    if unc_temp and os.path.isdir(unc_temp):
+                                        search_roots.insert(0, unc_temp)
+                                except Exception:
+                                    pass
+                            suffix = f"_{backup_pid}.manifest.json"
+                            suffix_alt = f"_{backup_id}.manifest.json"
+                            # Also match _backup_pid.manifest.json when file_name is empty
+                            suffix_bare = f"_{backup_pid}.manifest.json" if backup_pid else None
+                            for search_root in search_roots:
+                                if not search_root or not os.path.isdir(search_root):
+                                    continue
+                                for root, _, files in os.walk(search_root):
+                                for f in files:
+                                    matches = (
+                                        f.endswith(suffix) or f.endswith(suffix_alt) or
+                                        (file_name_for_manifest and f.startswith(f"{file_name_for_manifest}_") and f.endswith(".manifest.json")) or
+                                        (suffix_bare and f == suffix_bare)
+                                    )
+                                    if matches:
+                                        cand = os.path.join(root, f)
+                                        try:
+                                            with open(cand, "r", encoding="utf-8") as mf:
+                                                data = json.load(mf)
+                                            if data.get("total_chunks") and data.get("chunks"):
+                                                best_manifest = cand
+                                                manifest_path = cand
+                                                manifest_data["total_chunks"] = data.get("total_chunks", 0)
+                                                manifest_data["chunks"] = data.get("chunks", {})
+                                                if data.get("file_hash"):
+                                                    manifest_data["file_hash"] = data.get("file_hash")
+                                                break
+                                        except Exception:
+                                            pass
+                                    if best_manifest:
+                                        break
+                                if best_manifest:
+                                    break
+                        except Exception:
+                            pass
                     if not os.path.exists(manifest_path):
                         log_event(
                             logger,
@@ -9300,6 +9449,31 @@ def get_restore_data():
                                 "reason": "MISSING_CHUNKS",
                             }
                         )
+                        # Emit backup_data with status "failed" so Progress UI shows Failed, not 100%
+                        try:
+                            sktio.emit(
+                                "backup_data",
+                                {
+                                    "restore_flag": True,
+                                    "backup_jobs": [
+                                        {
+                                            "restore_flag": True,
+                                            "name": backup_name,
+                                            "scheduled_time": datetime.datetime.fromtimestamp(
+                                                float(j_sta)
+                                            ).strftime("%H:%M:%S"),
+                                            "agent": str(torestore_computer_name),
+                                            "progress_number": 0,
+                                            "id": j_sta,
+                                            "restore_location": RestoreLocation,
+                                            "finished": True,
+                                            "status": "failed",
+                                        }
+                                    ]
+                                },
+                            )
+                        except Exception:
+                            pass
                         pendingfiles = pendingfiles - 1
                         continue
                     try:
@@ -9326,6 +9500,31 @@ def get_restore_data():
                                 "reason": "MISSING_CHUNKS",
                             }
                         )
+                        # Emit backup_data with status "failed" so Progress UI shows Failed, not 100%
+                        try:
+                            sktio.emit(
+                                "backup_data",
+                                {
+                                    "restore_flag": True,
+                                    "backup_jobs": [
+                                        {
+                                            "restore_flag": True,
+                                            "name": backup_name,
+                                            "scheduled_time": datetime.datetime.fromtimestamp(
+                                                float(j_sta)
+                                            ).strftime("%H:%M:%S"),
+                                            "agent": str(torestore_computer_name),
+                                            "progress_number": 0,
+                                            "id": j_sta,
+                                            "restore_location": RestoreLocation,
+                                            "finished": True,
+                                            "status": "failed",
+                                        }
+                                    ]
+                                },
+                            )
+                        except Exception:
+                            pass
                         pendingfiles = pendingfiles - 1
                         continue
                 if str(selectedStorageType) =="UNC": # in ["UNC","NAS"]:
@@ -9624,77 +9823,62 @@ def get_restore_data():
                 if key_tuple not in unique_records:
                     unique_records.add(key_tuple)
                     result.append({key: record[key] for key in keys})
-            if len(result)>0:
+            if len(result) > 0:
                 from sqlalchemy.orm import sessionmaker
-                
-                engine = create_engine("sqlite:///" + str(app.config.get("getCode",None))+".db")
-                session = sessionmaker(bind=engine)()
-                restore_parent_o = restore_parent(
-                        RestoreLocation=RestoreLocation, 
-                        backup_id=backup_pid,
-                        storage_type=selectedStorageType,
-                        backup_name=backup_name,                
-                        p_id=backup_name_id,                
-                        t14=float(str(j_sta)) ,
-                        from_backup_pc=frombackup_computer_name, 
-                        targetlocation=targetLocation,
-                        torestore_pc=torestore_computer_name
+                project_id_rc = str(app.config.get("getCode", None))
+                if USE_MSSQL:
+                    _session_ctx = get_session_for_project(project_id_rc)
+                    session = _session_ctx.__enter__()
+                else:
+                    engine = create_engine("sqlite:///" + project_id_rc + ".db")
+                    session = sessionmaker(bind=engine)()
+                rp_kw = dict(
+                    RestoreLocation=RestoreLocation,
+                    backup_id=backup_pid,
+                    storage_type=selectedStorageType,
+                    backup_name=backup_name,
+                    p_id=backup_name_id,
+                    t14=float(str(j_sta)),
+                    from_backup_pc=frombackup_computer_name,
+                    targetlocation=targetLocation,
+                    torestore_pc=torestore_computer_name,
                 )
-                q = session.query(restore_parent).filter_by(
-                    RestoreLocation=RestoreLocation, 
-                        backup_id=backup_pid,
-                        storage_type=selectedStorageType,
-                        backup_name=backup_name,                
-                        p_id=backup_name_id,                
-                        t14=float(str(j_sta)) ,
-                        from_backup_pc=frombackup_computer_name, 
-                        targetlocation=targetLocation,
-                        torestore_pc=torestore_computer_name).first()
+                if USE_MSSQL:
+                    rp_kw["project_id"] = project_id_rc
+                restore_parent_o = restore_parent(**rp_kw)
+                qf = dict(RestoreLocation=RestoreLocation, backup_id=backup_pid, storage_type=selectedStorageType,
+                    backup_name=backup_name, p_id=backup_name_id, t14=float(str(j_sta)),
+                    from_backup_pc=frombackup_computer_name, targetlocation=targetLocation, torestore_pc=torestore_computer_name)
+                if USE_MSSQL:
+                    qf["project_id"] = project_id_rc
+                q = session.query(restore_parent).filter_by(**qf).first()
                 if not q:
                     session.add(restore_parent_o)
                     session.commit()
                 if resp_dict:
                     for f in resp_dict:
-                        q = session.query(restore_child).filter_by(
-                                RestoreLocation=RestoreLocation, 
-                                backup_id=float(backup_pid),
-                                backup_file_id=float(f.get("backup_id",0)),
-                                backup_name=backup_name,
-                                p_id=backup_name_id,
-                                file=f.get("file",""), 
-                                file_restore_time=f.get("file_restore_timetaken",""),
-                                file_start=f.get("file_start_time",""),
-                                file_end= f.get("file_start_end",""),
-                                from_backup_pc=frombackup_computer_name, 
-                                reason= f.get("reason",""),
-                                restore=f.get("restore",""),
-                                storage_type=selectedStorageType,
-                                t14=float(str(j_sta)) ,
-                                targetlocation=targetLocation,
-                                torestore_pc=torestore_computer_name
-                            ).first()
+                        rc_f = dict(RestoreLocation=RestoreLocation, backup_id=float(backup_pid),
+                            backup_file_id=float(f.get("backup_id",0)), backup_name=backup_name, p_id=backup_name_id,
+                            file=f.get("file",""), file_restore_time=f.get("file_restore_timetaken",""),
+                            file_start=f.get("file_start_time",""), file_end=f.get("file_start_end",""),
+                            from_backup_pc=frombackup_computer_name, reason=f.get("reason",""),
+                            restore=f.get("restore",""), storage_type=selectedStorageType,
+                            t14=float(str(j_sta)), targetlocation=targetLocation, torestore_pc=torestore_computer_name)
+                        if USE_MSSQL:
+                            rc_f["project_id"] = project_id_rc
+                        q = session.query(restore_child).filter_by(**rc_f).first()
                         if not q:
-                            restore_child_o = restore_child(
-                                RestoreLocation=RestoreLocation, 
-                                backup_id=float(backup_pid),
-                                backup_file_id=float(f.get("backup_id",0)),
-                                backup_name=backup_name,
-                                p_id=backup_name_id,
-                                file=f.get("file",""), 
-                                file_restore_time=f.get("file_restore_timetaken",""),
-                                file_start=f.get("file_start_time",""),
-                                file_end= f.get("file_start_end",""),
-                                from_backup_pc=frombackup_computer_name, 
-                                reason= f.get("reason",""),
-                                restore=f.get("restore",""),
-                                storage_type=selectedStorageType,
-                                t14=float(str(j_sta)) ,
-                                targetlocation=targetLocation,
-                                torestore_pc=torestore_computer_name
-                            )
+                            restore_child_o = restore_child(**rc_f)
                             session.add(restore_child_o)
                             session.commit()
-                session.close()
+                try:
+                    session.close()
+                finally:
+                    if USE_MSSQL:
+                        try:
+                            _session_ctx.__exit__(None, None, None)
+                        except Exception:
+                            pass
 
             restored_count = sum(1 for f in resp_dict if f.get("restore") == "success")
             failed_count = sum(1 for f in resp_dict if f.get("restore") == "failed")
@@ -9769,6 +9953,35 @@ def get_restore_data():
         # return 200  # jsonify(result=rr)
         except Exception as e:
 
+            # Emit backup_data with status "failed" so Progress UI shows Failed instead of 100% Restoring
+            try:
+                rj = request.json or {}
+                job_id = rj.get("id")
+                if job_id is not None:
+                    try:
+                        ts = float(job_id)
+                        scheduled_time = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+                    except (TypeError, ValueError, OSError):
+                        scheduled_time = datetime.datetime.now().strftime("%H:%M:%S")
+                    sktio.emit(
+                        "backup_data",
+                        {
+                            "backup_jobs": [
+                                {
+                                    "restore_flag": True,
+                                    "scheduled_time": scheduled_time,
+                                    "agent": rj.get("targetAgentName", ""),
+                                    "progress_number": 0,
+                                    "id": job_id,
+                                    "restore_location": rj.get("RestoreLocation", ""),
+                                    "finished": True,
+                                    "status": "failed",
+                                }
+                            ]
+                        },
+                    )
+            except Exception:
+                pass
             # 500 = restore failed (body has reason). Frontend must show result[0].reason or result.reason, not generic "Request failed with status code 500".
             return (jsonify(result=[{"restore": "failed", "reason": str(e)}]), 500)
 
@@ -9776,12 +9989,16 @@ def get_restore_data():
 
         # return 200
     if selectedAction == "fetch" or selectedAction == "fetchAll":
-        from sqlalchemy.orm import sessionmaker   
+        from sqlalchemy.orm import sessionmaker
         from module2 import create_database
-        create_database(str(app.config.get("getCode",None))+".db")
-        engine = create_engine("sqlite:///" + str(app.config.get("getCode",None))+".db")
-        restore_session = sessionmaker(bind=engine)()
-        update_filebackup_counts(0,obj)
+        create_database(str(app.config.get("getCode", None)) + ".db")
+        if not USE_MSSQL:
+            engine = create_engine("sqlite:///" + str(app.config.get("getCode", None)) + ".db")
+            restore_session = sessionmaker(bind=engine)()
+        else:
+            engine = None
+            restore_session = None  # use get_session_for_project(obj) in the results loop when USE_MSSQL
+        update_filebackup_counts(0, obj)
 
         if str(selectedStorageType).lower().replace(" ", "") in [
             "local",
@@ -9859,7 +10076,6 @@ def get_restore_data():
         # session.close()
         batch_size = 1000
         backup_jobs_json = []
-        s_manager = SQLiteManager()
         dbname = os.path.join(app.config["location"], obj)
         restore_query = (
             "SELECT backups_M.id,date_time,from_computer,from_path,"
@@ -9876,98 +10092,117 @@ def get_restore_data():
             + agent_filter_clause
             + " order by date_time desc"
         )
-        # Try multiple path variants: DBs may have no extension or .db/.sqlite/.sqlite3/.db3
-        # and may be keyed by computer_id (obj) or by agent name (selectedAgent)
-        location_dir = app.config.get("location") or ""
-        db_extensions = ("", ".db", ".sqlite", ".sqlite3", ".db3")
-        candidate_paths = []
-        for base_name in (obj, selectedAgent, requested_agent):
-            if not base_name:
-                continue
-            for ext in db_extensions:
-                p = os.path.join(location_dir, base_name + ext)
-                if p not in candidate_paths:
-                    candidate_paths.append(p)
-        for base_name in (obj, selectedAgent):
-            if not base_name:
-                continue
-            for ext in db_extensions:
-                p = os.path.join(os.getcwd(), base_name + ext)
-                if p not in candidate_paths:
-                    candidate_paths.append(p)
-        # If no explicit paths yet, ensure dbname (location/obj) is tried
-        if dbname not in candidate_paths:
-            candidate_paths.insert(0, dbname)
         results = {}
-        all_records = []  # aggregate from all candidate DBs when fetchAll so no backup is missed
-        seen_ids = set()
-        for candidate in candidate_paths:
-            if not os.path.isfile(candidate):
-                continue
-            qrs = [(candidate, [restore_query])]
-            try:
-                try_results = s_manager.execute_queries(qrs)
-            except Exception:
-                continue
-            if candidate in try_results and len(try_results[candidate]) > 0:
-                status, records = try_results[candidate][0]
-                if status == "Success" and records:
-                    if selectedAction == "fetchAll":
-                        for row in records:
-                            row_id = dict(row).get("id")
-                            if row_id is not None and row_id not in seen_ids:
-                                seen_ids.add(row_id)
-                                all_records.append(row)
-                    else:
-                        results = {dbname: [(status, records)]}
-                        break
-        if selectedAction == "fetchAll" and os.path.isdir(location_dir):
-            # Fallback: list directory and try any file that looks like agent/obj (any extension)
-            try:
-                for fname in os.listdir(location_dir):
-                    base, ext = os.path.splitext(fname)
-                    if base not in (obj, selectedAgent, requested_agent):
-                        continue
-                    candidate = os.path.join(location_dir, fname)
-                    if not os.path.isfile(candidate):
-                        continue
-                    if candidate in candidate_paths:
-                        continue
-                    qrs = [(candidate, [restore_query])]
-                    try_results = s_manager.execute_queries(qrs)
-                    if candidate in try_results and len(try_results[candidate]) > 0:
-                        status, records = try_results[candidate][0]
-                        if status == "Success" and records:
+        if USE_MSSQL and obj:
+            with get_session_for_project(obj) as session:
+                from FlaskWebProject3.models import BackupMain as BMModel
+                stypes = [s.strip().strip("'") for s in selectedStorageType.split("','") if s.strip()]
+                q = session.query(BMModel).filter(
+                    BMModel.project_id == obj,
+                    BMModel.id * 1000 >= startDate,
+                    BMModel.id * 1000 <= endDate,
+                    BMModel.data_repo.in_(stypes),
+                )
+                if agent_candidates:
+                    q = q.filter(BMModel.from_computer.in_(agent_candidates))
+                rows = q.order_by(BMModel.date_time.desc()).all()
+                records = []
+                for r in rows:
+                    wdone = (float(r.sum_done or 0) * 100 / float(r.sum_all or 1)) if (r.sum_all and r.sum_all != 0) else 0
+                    records.append(dict(
+                        id=r.id, date_time=r.date_time, from_computer=r.from_computer or "",
+                        from_path=r.from_path or "", data_repo=r.data_repo or "", mime_type=r.mime_type or "",
+                        file_name=r.file_name or "", size=r.size or 0, pNameText=r.pNameText or "",
+                        pIdText=r.pIdText or "", bkupType=r.bkupType or "", wdone=wdone,
+                    ))
+                results = {dbname: [("Success", records)]} if records else {}
+        else:
+            location_dir = app.config.get("location") or ""
+            db_extensions = ("", ".db", ".sqlite", ".sqlite3", ".db3")
+            candidate_paths = []
+            for base_name in (obj, selectedAgent, requested_agent):
+                if not base_name:
+                    continue
+                for ext in db_extensions:
+                    p = os.path.join(location_dir, base_name + ext)
+                    if p not in candidate_paths:
+                        candidate_paths.append(p)
+            for base_name in (obj, selectedAgent):
+                if not base_name:
+                    continue
+                for ext in db_extensions:
+                    p = os.path.join(os.getcwd(), base_name + ext)
+                    if p not in candidate_paths:
+                        candidate_paths.append(p)
+            if dbname not in candidate_paths:
+                candidate_paths.insert(0, dbname)
+            all_records = []
+            seen_ids = set()
+            for candidate in candidate_paths:
+                if not os.path.isfile(candidate):
+                    continue
+                qrs = [(candidate, [restore_query])]
+                try:
+                    try_results = execute_queries_sqlite(qrs)
+                except Exception:
+                    continue
+                if candidate in try_results and len(try_results[candidate]) > 0:
+                    status, records = try_results[candidate][0]
+                    if status == "Success" and records:
+                        if selectedAction == "fetchAll":
                             for row in records:
                                 row_id = dict(row).get("id")
                                 if row_id is not None and row_id not in seen_ids:
                                     seen_ids.add(row_id)
                                     all_records.append(row)
-            except Exception:
-                pass
-        if selectedAction == "fetchAll" and all_records:
-            results = {dbname: [("Success", all_records)]}
-        if not results and os.path.isdir(location_dir):
-            # Fallback when not fetchAll: list directory and try any file that looks like agent/obj
-            try:
-                for fname in os.listdir(location_dir):
-                    base, ext = os.path.splitext(fname)
-                    if base not in (obj, selectedAgent, requested_agent):
-                        continue
-                    candidate = os.path.join(location_dir, fname)
-                    if not os.path.isfile(candidate):
-                        continue
-                    qrs = [(candidate, [restore_query])]
-                    try_results = s_manager.execute_queries(qrs)
-                    if candidate in try_results and len(try_results[candidate]) > 0:
-                        status, records = try_results[candidate][0]
-                        if status == "Success" and records:
+                        else:
                             results = {dbname: [(status, records)]}
                             break
-            except Exception:
-                pass
+            if selectedAction == "fetchAll" and os.path.isdir(location_dir):
+                try:
+                    for fname in os.listdir(location_dir):
+                        base, ext = os.path.splitext(fname)
+                        if base not in (obj, selectedAgent, requested_agent):
+                            continue
+                        candidate = os.path.join(location_dir, fname)
+                        if not os.path.isfile(candidate):
+                            continue
+                        if candidate in candidate_paths:
+                            continue
+                        qrs = [(candidate, [restore_query])]
+                        try_results = execute_queries_sqlite(qrs)
+                        if candidate in try_results and len(try_results[candidate]) > 0:
+                            status, records = try_results[candidate][0]
+                            if status == "Success" and records:
+                                for row in records:
+                                    row_id = dict(row).get("id")
+                                    if row_id is not None and row_id not in seen_ids:
+                                        seen_ids.add(row_id)
+                                        all_records.append(row)
+                except Exception:
+                    pass
+            if selectedAction == "fetchAll" and all_records:
+                results = {dbname: [("Success", all_records)]}
+            if not results and os.path.isdir(location_dir):
+                try:
+                    for fname in os.listdir(location_dir):
+                        base, ext = os.path.splitext(fname)
+                        if base not in (obj, selectedAgent, requested_agent):
+                            continue
+                        candidate = os.path.join(location_dir, fname)
+                        if not os.path.isfile(candidate):
+                            continue
+                        qrs = [(candidate, [restore_query])]
+                        try_results = execute_queries_sqlite(qrs)
+                        if candidate in try_results and len(try_results[candidate]) > 0:
+                            status, records = try_results[candidate][0]
+                            if status == "Success" and records:
+                                results = {dbname: [(status, records)]}
+                                break
+                except Exception:
+                    pass
         if not results:
-            results = s_manager.execute_queries([(dbname, [restore_query])])
+            results = execute_queries_sqlite([(dbname, [restore_query])])
 
         for db_path, db_results in results.items():
             print(f"Results for {db_path}:")
@@ -10014,8 +10249,17 @@ def get_restore_data():
                                 
                             }
 
-                            x= restore_session.query(restore_parent).filter_by(backup_id=dict(job)["id"])
-                            job_dict.update({"restore_logs":[restore_parent.to_dict(fx,True,restore_session) for fx in x]})
+                            if USE_MSSQL and obj:
+                                from FlaskWebProject3.models import RestoreParent as RParent
+                                with get_session_for_project(obj) as _restore_sess:
+                                    x = _restore_sess.query(RParent).filter(
+                                        RParent.project_id == obj,
+                                        RParent.backup_id == dict(job)["id"],
+                                    ).all()
+                                    job_dict.update({"restore_logs": [RParent.to_dict(fx, True, _restore_sess) for fx in x]})
+                            else:
+                                x = restore_session.query(restore_parent).filter_by(backup_id=dict(job)["id"])
+                                job_dict.update({"restore_logs": [restore_parent.to_dict(fx, True, restore_session) for fx in x]})
                             backup_jobs_json.append(job_dict)
 
         # for job in backup_jobs:

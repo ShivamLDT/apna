@@ -707,10 +707,7 @@ from werkzeug.exceptions import Unauthorized, BadRequest
 try:
     import aiosqlite
 except ImportError:
-    raise ImportError(
-        "aiosqlite is required for async operations. "
-        "Install it with: pip install aiosqlite"
-    )
+    aiosqlite = None
 
 from .crypto_utils import (
     gen_rsa_keypair, rsa_decrypt, aes_encrypt, aes_decrypt,
@@ -718,10 +715,19 @@ from .crypto_utils import (
 )
 
 
+def _use_mssql_session_store():
+    """Check if MSSQL-based SessionStore should be used."""
+    try:
+        from FlaskWebProject3.db_config import USE_MSSQL
+        return USE_MSSQL
+    except ImportError:
+        return False
+
+
 class SessionStore:
     """
-    Async persistent session storage using SQLite with WAL mode.
-    Uses aiosqlite for non-blocking database operations with sync wrappers for Flask.
+    Async persistent session storage.
+    Uses MSSQL + SQLAlchemy async when USE_MSSQL is True, else aiosqlite.
     """
     
     def __init__(self, db_path='sessions.db', max_connections=20):
@@ -729,7 +735,7 @@ class SessionStore:
         Initialize async session store.
         
         Args:
-            db_path: Path to SQLite database file
+            db_path: Path to SQLite database file (used when USE_MSSQL=False)
             max_connections: Maximum concurrent database connections
         """
         self.db_path = db_path
@@ -738,6 +744,9 @@ class SessionStore:
         self._initialized = False
         self._loop = None
         self._loop_thread = None
+        self._use_mssql = _use_mssql_session_store()
+        self._async_engine = None
+        self._async_session_factory = None
         self._start_event_loop()
     
     def _start_event_loop(self):
@@ -769,11 +778,36 @@ class SessionStore:
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
     
-    async def _init_db(self):
-        """Initialize database schema with WAL mode and optimizations."""
-        if self._initialized:
-            return
-        
+    async def _init_db_mssql(self):
+        """Initialize MSSQL schema for sessions via SQLAlchemy async."""
+        if self._async_engine is None:
+            from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+            from sqlalchemy.orm import sessionmaker
+            from sqlalchemy.ext.asyncio import async_sessionmaker
+            from FlaskWebProject3.db_config import ASYNC_DATABASE_URL, ASYNC_POOL_SIZE, ASYNC_MAX_OVERFLOW
+            from FlaskWebProject3.models import Base, CryptoSession
+            
+            self._async_engine = create_async_engine(
+                ASYNC_DATABASE_URL,
+                pool_size=ASYNC_POOL_SIZE,
+                max_overflow=ASYNC_MAX_OVERFLOW,
+                pool_pre_ping=True,
+            )
+            self._async_session_factory = async_sessionmaker(
+                self._async_engine,
+                class_=AsyncSession,
+                expire_on_commit=False,
+                autocommit=False,
+                autoflush=False,
+            )
+            async with self._async_engine.begin() as conn:
+                await conn.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn))
+        self._initialized = True
+    
+    async def _init_db_sqlite(self):
+        """Initialize SQLite schema with WAL mode."""
+        if not aiosqlite:
+            raise ImportError("aiosqlite is required when USE_MSSQL=False. pip install aiosqlite")
         if self._connection_semaphore is None:
             self._connection_semaphore = asyncio.Semaphore(self.max_connections)
             
@@ -781,11 +815,6 @@ class SessionStore:
             await conn.execute('PRAGMA journal_mode=WAL')
             await conn.execute('PRAGMA synchronous=NORMAL')
             await conn.execute('PRAGMA busy_timeout=5000')
-            await conn.execute('PRAGMA temp_store=MEMORY')
-            await conn.execute('PRAGMA cache_size=-128000')
-            await conn.execute('PRAGMA mmap_size=268435456')
-            await conn.execute('PRAGMA page_size=4096')
-            
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS sessions (
                     key_id TEXT PRIMARY KEY,
@@ -794,167 +823,228 @@ class SessionStore:
                     created_at REAL NOT NULL
                 )
             ''')
-            await conn.execute('''
-                CREATE INDEX IF NOT EXISTS idx_expires 
-                ON sessions(expires_at)
-            ''')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_expires ON sessions(expires_at)')
             await conn.commit()
-        
         self._initialized = True
+    
+    async def _init_db(self):
+        """Initialize database schema."""
+        if self._initialized:
+            return
+        if self._use_mssql:
+            await self._init_db_mssql()
+        else:
+            await self._init_db_sqlite()
+    
+    @asynccontextmanager
+    async def _get_mssql_session(self):
+        """Context manager for MSSQL AsyncSession."""
+        if self._connection_semaphore is None:
+            self._connection_semaphore = asyncio.Semaphore(self.max_connections)
+        async with self._connection_semaphore:
+            async with self._async_session_factory() as session:
+                try:
+                    yield session
+                    await session.commit()
+                except Exception:
+                    await session.rollback()
+                    raise
     
     @asynccontextmanager
     async def _get_connection(self):
-        """
-        Context manager to get a database connection with semaphore control.
-        Ensures connection limit is respected.
-        """
-        if self._connection_semaphore is None:
-            self._connection_semaphore = asyncio.Semaphore(self.max_connections)
-            
-        async with self._connection_semaphore:
-            async with aiosqlite.connect(
-                self.db_path,
-                timeout=10.0,
-                isolation_level=None
-            ) as conn:
-                await conn.execute('PRAGMA journal_mode=WAL')
-                await conn.execute('PRAGMA synchronous=NORMAL')
-                yield conn
+        """Get write connection (MSSQL or SQLite)."""
+        if self._use_mssql:
+            async with self._get_mssql_session() as session:
+                yield session
+        else:
+            if self._connection_semaphore is None:
+                self._connection_semaphore = asyncio.Semaphore(self.max_connections)
+            async with self._connection_semaphore:
+                async with aiosqlite.connect(
+                    self.db_path, timeout=10.0, isolation_level=None
+                ) as conn:
+                    await conn.execute('PRAGMA journal_mode=WAL')
+                    await conn.execute('PRAGMA synchronous=NORMAL')
+                    yield conn
     
     @asynccontextmanager
     async def _get_read_connection(self):
-        """
-        Context manager for read-only database connection.
-        Allows concurrent reads without blocking writes or other reads.
-        No semaphore needed - SQLite handles concurrent reads natively.
-        """
-        async with aiosqlite.connect(
-            f"file:{self.db_path}?mode=ro",
-            uri=True,
-            timeout=3.0
-        ) as conn:
-            await conn.execute('PRAGMA query_only=ON')
-            yield conn
+        """Get read-only connection."""
+        if self._use_mssql:
+            async with self._get_mssql_session() as session:
+                yield session
+        else:
+            async with aiosqlite.connect(
+                f"file:{self.db_path}?mode=ro", uri=True, timeout=3.0
+            ) as conn:
+                await conn.execute('PRAGMA query_only=ON')
+                yield conn
 
     async def save_session(self, key_id, aes_key, expires_at):
-        """
-        Save session to database asynchronously.
-        
-        Args:
-            key_id: Unique session identifier
-            aes_key: AES encryption key (bytes)
-            expires_at: Expiration timestamp (float)
-        """
+        """Save session to database asynchronously."""
         await self._init_db()
+        created = now_ts()
         
-        async with self._get_connection() as conn:
-            await conn.execute('''
-                INSERT OR REPLACE INTO sessions 
-                (key_id, aes_key, expires_at, created_at)
-                VALUES (?, ?, ?, ?)
-            ''', (key_id, aes_key, expires_at, now_ts()))
-            await conn.commit()
-            await conn.execute('PRAGMA wal_checkpoint(PASSIVE)')
+        if self._use_mssql:
+            from FlaskWebProject3.models import CryptoSession
+            async with self._get_mssql_session() as session:
+                sess = CryptoSession(
+                    key_id=key_id,
+                    aes_key=aes_key,
+                    expires_at=expires_at,
+                    created_at=created,
+                )
+                await session.merge(sess)
+        else:
+            async with self._get_connection() as conn:
+                await conn.execute(
+                    'INSERT OR REPLACE INTO sessions (key_id, aes_key, expires_at, created_at) VALUES (?, ?, ?, ?)',
+                    (key_id, aes_key, expires_at, created)
+                )
+                await conn.commit()
     
     async def get_session(self, key_id):
-        """
-        Retrieve session from database using read-only connection.
-        No locking - allows unlimited concurrent reads.
-    
-        Args:
-            key_id: Session identifier to retrieve
-        
-        Returns:
-            dict with 'aes_key' and 'expires' keys, or None if not found/expired
-        """
+        """Retrieve session from database."""
         await self._init_db()
-    
-        try:
-            async with self._get_read_connection() as conn:
-                async with conn.execute('''
-                    SELECT aes_key, expires_at FROM sessions 
-                    WHERE key_id = ?
-                ''', (key_id,)) as cursor:
-                    row = await cursor.fetchone()
-                
+        
+        if self._use_mssql:
+            from sqlalchemy import select
+            from FlaskWebProject3.models import CryptoSession
+            
+            try:
+                async with self._get_mssql_session() as session:
+                    result = await session.execute(
+                        select(CryptoSession.aes_key, CryptoSession.expires_at).where(
+                            CryptoSession.key_id == key_id
+                        )
+                    )
+                    row = result.first()
                     if row:
                         aes_key, expires_at = row
                         if expires_at > now_ts():
                             return {'aes_key': aes_key, 'expires': expires_at}
                     return None
-        except aiosqlite.OperationalError as e:
-            if 'unable to open database' in str(e).lower():
-                await self._init_db()
-                return await self.get_session(key_id)
-            raise
+            except Exception as e:
+                if 'unable to open' in str(e).lower() or 'connect' in str(e).lower():
+                    await self._init_db()
+                    return await self.get_session(key_id)
+                raise
+        else:
+            try:
+                async with self._get_read_connection() as conn:
+                    async with conn.execute(
+                        'SELECT aes_key, expires_at FROM sessions WHERE key_id = ?',
+                        (key_id,)
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                        if row:
+                            aes_key, expires_at = row[0], row[1]
+                            if expires_at > now_ts():
+                                return {'aes_key': aes_key, 'expires': expires_at}
+                return None
+            except Exception as e:
+                if aiosqlite and isinstance(e, aiosqlite.OperationalError):
+                    if 'unable to open database' in str(e).lower():
+                        await self._init_db()
+                        return await self.get_session(key_id)
+                raise
     
     async def delete_session(self, key_id):
-        """
-        Delete session from database asynchronously.
-        
-        Args:
-            key_id: Session identifier to delete
-        """
+        """Delete session from database."""
         await self._init_db()
         
-        async with self._get_connection() as conn:
-            await conn.execute('DELETE FROM sessions WHERE key_id = ?', (key_id,))
-            await conn.commit()
+        if self._use_mssql:
+            from sqlalchemy import delete
+            from FlaskWebProject3.models import CryptoSession
+            
+            async with self._get_mssql_session() as session:
+                await session.execute(delete(CryptoSession).where(CryptoSession.key_id == key_id))
+        else:
+            async with self._get_connection() as conn:
+                await conn.execute('DELETE FROM sessions WHERE key_id = ?', (key_id,))
+                await conn.commit()
 
     async def extend_session(self, key_id, new_expires_at):
-        """
-        Extend session expiration (sliding expiration).
-        Call on each successful decrypt so active users keep their sessions alive.
-        """
+        """Extend session expiration (sliding expiration)."""
         await self._init_db()
-        async with self._get_connection() as conn:
-            await conn.execute(
-                'UPDATE sessions SET expires_at = ? WHERE key_id = ? AND expires_at > ?',
-                (new_expires_at, key_id, now_ts())
-            )
-            await conn.commit()
+        
+        if self._use_mssql:
+            from sqlalchemy import update, and_
+            from FlaskWebProject3.models import CryptoSession
+            
+            async with self._get_mssql_session() as session:
+                await session.execute(
+                    update(CryptoSession)
+                    .where(and_(
+                        CryptoSession.key_id == key_id,
+                        CryptoSession.expires_at > now_ts()
+                    ))
+                    .values(expires_at=new_expires_at)
+                )
+        else:
+            async with self._get_connection() as conn:
+                await conn.execute(
+                    'UPDATE sessions SET expires_at = ? WHERE key_id = ? AND expires_at > ?',
+                    (new_expires_at, key_id, now_ts())
+                )
+                await conn.commit()
     
     async def cleanup_expired(self):
-        """
-        Remove expired sessions asynchronously.
-        
-        Returns:
-            int: Number of deleted sessions
-        """
+        """Remove expired sessions. Returns number deleted."""
         await self._init_db()
         
-        async with self._get_connection() as conn:
-            cursor = await conn.execute(
-                'DELETE FROM sessions WHERE expires_at < ?',
-                (now_ts(),)
-            )
-            deleted = cursor.rowcount
-            await conn.commit()
-            return deleted
+        if self._use_mssql:
+            from sqlalchemy import delete, func
+            from FlaskWebProject3.models import CryptoSession
+            
+            async with self._get_mssql_session() as session:
+                result = await session.execute(delete(CryptoSession).where(CryptoSession.expires_at < now_ts()))
+                return result.rowcount
+        else:
+            async with self._get_connection() as conn:
+                cursor = await conn.execute(
+                    'DELETE FROM sessions WHERE expires_at < ?', (now_ts(),)
+                )
+                deleted = cursor.rowcount
+                await conn.commit()
+                return deleted
     
     async def get_session_count(self):
-        """
-        Get total number of active sessions using read-only connection.
-        No locking - safe for concurrent execution.
-    
-        Returns:
-            int: Count of active (non-expired) sessions
-        """
+        """Get count of active (non-expired) sessions."""
         await self._init_db()
-    
-        try:
-            async with self._get_read_connection() as conn:
-                async with conn.execute(
-                    'SELECT COUNT(*) FROM sessions WHERE expires_at > ?',
-                    (now_ts(),)
-                ) as cursor:
+        
+        if self._use_mssql:
+            from sqlalchemy import select, func
+            from FlaskWebProject3.models import CryptoSession
+            
+            try:
+                async with self._get_mssql_session() as session:
+                    result = await session.execute(
+                        select(func.count()).select_from(CryptoSession).where(
+                            CryptoSession.expires_at > now_ts()
+                        )
+                    )
+                    return result.scalar() or 0
+            except Exception as e:
+                if 'unable to open' in str(e).lower() or 'connect' in str(e).lower():
+                    await self._init_db()
+                    return await self.get_session_count()
+                raise
+        else:
+            try:
+                async with self._get_read_connection() as conn:
+                    cursor = await conn.execute(
+                        'SELECT COUNT(*) FROM sessions WHERE expires_at > ?',
+                        (now_ts(),)
+                    )
                     row = await cursor.fetchone()
                     return row[0] if row else 0
-        except aiosqlite.OperationalError as e:
-            if 'unable to open database' in str(e).lower():
-                await self._init_db()
-                return await self.get_session_count()
-            raise
+            except Exception as e:
+                if aiosqlite and isinstance(e, aiosqlite.OperationalError):
+                    if 'unable to open database' in str(e).lower():
+                        await self._init_db()
+                        return await self.get_session_count()
+                raise
     
     def save_session_sync(self, key_id, aes_key, expires_at):
         """

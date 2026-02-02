@@ -1226,9 +1226,20 @@ if __name__ == "__main__":
     original_location = get_original_location()
     print("Original location:", original_location)
     app.config["location"] = original_location
+    try:
+        os.makedirs(original_location, exist_ok=True)
+    except OSError:
+        pass
     app.config["exepath"] = get_original_executable_path()
 
     print(app.config["location"])
+
+    # Auto-migrate SQLite -> MSSQL on startup when USE_MSSQL=1 (skips already-migrated files)
+    try:
+        from FlaskWebProject3.sqlite_migrate import run_auto_migration
+        run_auto_migration(app)
+    except Exception as ex:
+        logger.warning("Auto-migration skipped: %s", ex)
     
     app.config["port"]=PORT
     SetUpEnv()

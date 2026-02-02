@@ -150,27 +150,51 @@ def process_folder(folder,all_types,all_selected_types):
     return ff_files, stack
 
 
+try:
+    from fClient.db_config import USE_MSSQL
+    from fClient.db import get_session_for_project
+except ImportError:
+    USE_MSSQL = False
+
+
+def _safe_table_name(name):
+    """Allow only alphanumeric and underscore for table names (SQL injection safety)."""
+    import re
+    if not name or not re.match(r"^[a-zA-Z0-9_]+$", name):
+        return None
+    return name
+
+
 def filter_files_by_last_modified(src_folder, db_path, table_name):
-    # Connect to SQLite database
-    conn = sqlite3.connect(db_path)
-    ##kartik
-    conn.execute('PRAGMA journal_mode=WAL')
-    conn.execute('PRAGMA synchronous=NORMAL')
-    conn.execute('PRAGMA busy_timeout=30000')  
-    conn.execute('PRAGMA temp_store=MEMORY')
-    conn.execute('PRAGMA cache_size=-64000')
-    cursor = conn.cursor()
+    import os
+    safe_table = _safe_table_name(table_name)
+    last_modified_dict = {}
 
-    # Query SQLite table to get last modified times
-    cursor.execute(f"SELECT file, last_modified FROM {table_name}")
-    sqlite_data = cursor.fetchall()
+    if USE_MSSQL and safe_table:
+        from sqlalchemy import text
+        project_id = os.path.splitext(os.path.basename(db_path))[0] or db_path
+        try:
+            with get_session_for_project(project_id) as session:
+                result = session.execute(text(f"SELECT file, last_modified FROM {safe_table}"))
+                rows = result.fetchall()
+                last_modified_dict = {row[0]: row[1] for row in rows}
+        except Exception:
+            pass
+    else:
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("PRAGMA cache_size=-64000")
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT file, last_modified FROM {table_name}")
+            sqlite_data = cursor.fetchall()
+            last_modified_dict = {file_name: last_modified for file_name, last_modified in sqlite_data}
+        finally:
+            conn.close()
 
-    # Create a dictionary to store last modified times
-    last_modified_dict = {
-        file_name: last_modified for file_name, last_modified in sqlite_data
-    }
-
-    # List files in the source folder and filter them based on last modified times
     filtered_files = []
     for root, dirs, files in os.walk(src_folder):
         for file_name in files:
@@ -180,9 +204,6 @@ def filter_files_by_last_modified(src_folder, db_path, table_name):
                 or os.stat(file_path).st_mtime > last_modified_dict[file_name]
             ):
                 filtered_files.append(file_path)
-
-    # Close the database connection
-    conn.close()
 
     return filtered_files
 

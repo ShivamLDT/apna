@@ -33,8 +33,6 @@ compress.init_app(app)
 import fClient.ipbrd
 import fClient.views
 import fClient.fingerprint
-import fClient.sqlite_managerA
-from fClient.sqlite_managerA import SQLiteManager
 from fClient.cm import CredentialManager
 from fClient.unc import NetworkShare, EncryptedFileSystem
 from fClient.FilesUtil import FileCollector

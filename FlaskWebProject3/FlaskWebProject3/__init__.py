@@ -179,8 +179,6 @@ Talisman(app, content_security_policy=custom_csp, permissions_policy=permissions
 #from .socketio import sktio 
 
 import FlaskWebProject3.views
-from sqlite_managerA import SQLiteManager,RowWrapper
-#from sqlite_manager import SQLiteManager
 global gserver 
 from .shared_data import notifications
 from FlaskWebProject3.notifications.views import notifications_bp

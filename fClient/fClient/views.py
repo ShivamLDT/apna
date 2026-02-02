@@ -42,8 +42,6 @@ import websocket
 
 from fClient.fingerprint import getCode, getKey
 from fClient.p7zstd import p7zstd
-from fClient.sqlite_managerA import SQLiteManager
-
 # sktio.init_app(app)
 
 ##kartik

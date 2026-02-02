@@ -76,7 +76,7 @@ from fClient.defaultResponse import post_process_context
 from fClient.sjbs.class1x import (create_custom_job,create_default_jobs,create_localbkp_job)
 from fClient.sjbs.class2 import create_uncbkp_job
 
-from fClient.sqlite_managerA import SQLiteManager
+from fClient.sqlite_legacy import execute_queries_sqlite
 
 # from sktiof import sktio
 cors = CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
@@ -624,33 +624,23 @@ def show_me_c(b=True, timeout=20):
     return {"result":True},200
 
 
+def _get_db_url():
+    """Return DB URL - MSSQL when USE_MSSQL=1, else SQLite."""
+    try:
+        from fClient.db_config import USE_MSSQL, DATABASE_URL
+        if USE_MSSQL:
+            return DATABASE_URL
+    except ImportError:
+        pass
+    return "sqlite:///" + str(app.config.get("getCode", None))
+
+
 class Config:
     """App configuration."""
 
-    # JOBS = [
-    #     {
-    #         "id": "a"+ str(time.time()) ,
-    #         "func": show_me,
-    #         "trigger": "interval",
-    #         "seconds": 600,
-    #         "misfire_grace_time":2*24*60*60
-    #     }
-    # ]
-
-    # SQLALCHEMY_DATABASE_URI = "sqlite:///flask_context.db"
-
-    # SCHEDULER_JOBSTORES = {
-    #     "default": SQLAlchemyJobStore(
-    #         url="sqlite:///flask_context.db",
-    #     )
-    # }
-
-    SQLALCHEMY_DATABASE_URI = "sqlite:///" + str(app.config.get("getCode",None))
-
+    SQLALCHEMY_DATABASE_URI = _get_db_url()
     SCHEDULER_JOBSTORES = {
-        "default": SQLAlchemyJobStore(
-            url="sqlite:///" + str(app.config.get("getCode",None)),
-        )
+        "default": SQLAlchemyJobStore(url=_get_db_url()),
     }
     # import pyodbc
     # db_file = str(app.config.get("getCode", None))
@@ -1246,7 +1236,15 @@ def last10_jobs():
     from sqlalchemy import create_engine, Column, Integer, String, DateTime
     from sqlalchemy.ext.declarative import declarative_base
 
-    engine = create_engine("sqlite:///" + str(app.config.get("getCode",None)))
+    try:
+        from fClient.db_config import USE_MSSQL, DATABASE_URL
+    except ImportError:
+        USE_MSSQL = False
+        DATABASE_URL = None
+    if USE_MSSQL and DATABASE_URL:
+        engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=5, pool_pre_ping=True)
+    else:
+        engine = create_engine("sqlite:///" + str(app.config.get("getCode", None)))
     xession = sessionmaker(bind=engine)
     with xession() as session:
         now = time.time()
@@ -1393,7 +1391,15 @@ def done_jobs():
     db_code = str(app.config.get("getCode"))
     output_file = f'{db_code}_success_jobs.json'
     
-    engine = create_engine(f"sqlite:///{db_code}")
+    try:
+        from fClient.db_config import USE_MSSQL, DATABASE_URL
+    except ImportError:
+        USE_MSSQL = False
+        DATABASE_URL = None
+    if USE_MSSQL and DATABASE_URL:
+        engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=5, pool_pre_ping=True)
+    else:
+        engine = create_engine(f"sqlite:///{db_code}")
     Session = sessionmaker(bind=engine)
     
     # Get current database count
@@ -1756,7 +1762,15 @@ def failed_jobs():
     dbname = os.path.join(app.config["location"], db_code)
     output_file = f'{db_code}_failed_jobs.json'
 
-    engine = create_engine(f"sqlite:///{dbname}")
+    try:
+        from fClient.db_config import USE_MSSQL, DATABASE_URL
+    except ImportError:
+        USE_MSSQL = False
+        DATABASE_URL = None
+    if USE_MSSQL and DATABASE_URL:
+        engine = create_engine(DATABASE_URL, pool_size=10, max_overflow=5, pool_pre_ping=True)
+    else:
+        engine = create_engine(f"sqlite:///{dbname}")
 
     DELETE_DUPLICATES_SQL = text("""
         DELETE FROM missed_jobs
@@ -2307,10 +2321,14 @@ if __name__ == "__main__" and app.config.get(
 
     app.config.from_object(Config())
     db = SQLAlchemy()
-    app.config['SQLALCHEMY_DATABASE_URI'] = ("sqlite:///" + str(app.config.get("getCode",None)))
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'connect_args': {'check_same_thread': False, 'timeout': 20}
-}
+    db_url = _get_db_url()
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+    if db_url.startswith("sqlite"):
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'connect_args': {'check_same_thread': False, 'timeout': 20}
+        }
+    else:
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
     #db.app = app
     db.init_app(app)
     with app.app_context():
@@ -2543,34 +2561,62 @@ if __name__ == "__main__" and app.config.get(
     
     from sqlalchemy import create_engine
 
-    # engine = create_engine("sqlite:///flask_context.db")
-    engine = create_engine("sqlite:///" + str(app.config.get("getCode",None)),pool_size=30,max_overflow=20)
-    
-    # engine.echo = TRUE
+    try:
+        from fClient.db_config import USE_MSSQL, DATABASE_URL
+    except ImportError:
+        USE_MSSQL = False
+
+    if USE_MSSQL:
+        engine = create_engine(DATABASE_URL, pool_size=30, max_overflow=20, pool_pre_ping=True)
+    else:
+        engine = create_engine("sqlite:///" + str(app.config.get("getCode", None)), pool_size=30, max_overflow=20)
+
     Base.metadata.create_all(engine)
     with app.app_context():
         db.create_all()
-    
-    qrs = [
-            (
-                str(app.config.get("getCode",None)),
-                [
-                    "ALTER TABLE missed_jobs ADD job_folder VARCHAR", 
-                    "ALTER TABLE done_jobs ADD job_folder VARCHAR", 
 
-                    "ALTER TABLE missed_jobs ADD job_repo VARCHAR",  
-                    "ALTER TABLE done_jobs ADD job_repo VARCHAR",  
-                    
-                    "ALTER TABLE missed_jobs ADD computerName VARCHAR",  
-                    "ALTER TABLE done_jobs ADD computerName VARCHAR", 
-                    "ALTER TABLE job_profiles ADD computerName VARCHAR", 
-                    "ALTER TABLE restores ADD p_id FLOAT",
-                    "ALTER TABLE restoreM ADD p_id FLOAT",
-                 ],
-            )
+    if USE_MSSQL:
+        # Idempotent ALTER for existing MSSQL DBs that may lack columns added later
+        from sqlalchemy import text
+        alters = [
+            ("missed_jobs", "job_folder", "VARCHAR(512)"),
+            ("done_jobs", "job_folder", "VARCHAR(512)"),
+            ("missed_jobs", "job_repo", "VARCHAR(512)"),
+            ("done_jobs", "job_repo", "VARCHAR(512)"),
+            ("missed_jobs", "computerName", "VARCHAR(512)"),
+            ("done_jobs", "computerName", "VARCHAR(512)"),
+            ("job_profiles", "computerName", "VARCHAR(512)"),
+            ("restores", "p_id", "FLOAT"),
+            ("restoreM", "p_id", "FLOAT"),
         ]
-    s_manager = SQLiteManager()
-    results = s_manager.execute_queries(qrs)
+        for table, col, typ in alters:
+            try:
+                with engine.connect() as conn:
+                    # MSSQL: ADD col typ (no COLUMN keyword); MySQL uses ADD COLUMN
+                    conn.execute(text(f"ALTER TABLE {table} ADD {col} {typ}"))
+                    conn.commit()
+            except Exception as e:
+                err = str(e).lower()
+                # MySQL 1060 = duplicate column; MSSQL "already exists" / "duplicate"
+                if "duplicate column" in err or "1060" in err or "already exists" in err or "duplicate" in err:
+                    pass
+                else:
+                    print(f"Warning: ALTER {table}.{col}: {e}")
+    else:
+        qrs = [
+            (str(app.config.get("getCode", None)), [
+                "ALTER TABLE missed_jobs ADD job_folder VARCHAR",
+                "ALTER TABLE done_jobs ADD job_folder VARCHAR",
+                "ALTER TABLE missed_jobs ADD job_repo VARCHAR",
+                "ALTER TABLE done_jobs ADD job_repo VARCHAR",
+                "ALTER TABLE missed_jobs ADD computerName VARCHAR",
+                "ALTER TABLE done_jobs ADD computerName VARCHAR",
+                "ALTER TABLE job_profiles ADD computerName VARCHAR",
+                "ALTER TABLE restores ADD p_id FLOAT",
+                "ALTER TABLE restoreM ADD p_id FLOAT",
+            ])
+        ]
+        execute_queries_sqlite(qrs)
 
     @c_scheduler.task(
         "interval",

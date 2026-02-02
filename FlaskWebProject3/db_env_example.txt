@@ -1,0 +1,6 @@
+# Copy this file to .env in the FlaskWebProject3 folder (or project root) and fill in your values.
+# The app will auto-load .env on startup.
+
+USE_MSSQL=1
+DATABASE_URL=mssql+pyodbc://shivam:1234@DESKTOP-F1DRACU/AppDB?driver=ODBC+Driver+17+for+SQL+Server
+ASYNC_DATABASE_URL=mssql+aioodbc://shivam:1234@DESKTOP-F1DRACU/AppDB?driver=ODBC+Driver+17+for+SQL+Server
