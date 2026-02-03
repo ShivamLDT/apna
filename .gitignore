@@ -142,7 +142,7 @@ instance/
 # Monitor/temp logs
 monitor_log.txt
 every_logs/
-
+metadata/
 # Backup/restore directories (contain user data)
 backup_dir/
 client_cache/

@@ -901,7 +901,11 @@ def restoretest():
                             file_id=obj,
                             error_code="FILE_CHECKSUM_MISMATCH",
                             error_message="Restored file checksum mismatch",
-                            extra={"event": "restore_aborted"},
+                            extra={
+                                "event": "restore_aborted",
+                                "expected_file_hash": expected_file_hash,
+                                "actual_file_hash": actual_file_hash,
+                            },
                         )
                         log_event(
                             logger,
@@ -1413,7 +1417,11 @@ def restoretest():
                         file_id=obj,
                         error_code="FILE_CHECKSUM_MISMATCH",
                         error_message="Restored file checksum mismatch",
-                        extra={"event": "restore_aborted"},
+                        extra={
+                            "event": "restore_aborted",
+                            "expected_file_hash": expected_file_hash,
+                            "actual_file_hash": actual_file_hash,
+                        },
                     )
                     log_event(
                         logger,
