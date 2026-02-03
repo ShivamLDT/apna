@@ -111,13 +111,13 @@ function normalizeKeyBytes(key) {
   if (!key) return '';
   if (typeof key === 'string') return key;
   if (key instanceof Uint8Array) {
-    return forge.util.binary.raw.encode(key);
+    return u8ToStr(key);
   }
   if (Array.isArray(key)) {
-    return forge.util.binary.raw.encode(new Uint8Array(key));
+    return u8ToStr(new Uint8Array(key));
   }
   if (key.buffer && key.byteLength != null) {
-    return forge.util.binary.raw.encode(new Uint8Array(key));
+    return u8ToStr(new Uint8Array(key));
   }
   if (typeof key.getBytes === 'function') {
     return key.getBytes();
@@ -288,15 +288,15 @@ async function aesDecrypt(enc, aesKey) {
   if (!enc || !enc.iv || !enc.ct) {
     throw new Error('Invalid encrypted data structure');
   }
-  const ivStr = normalizeBytes(atob(enc.iv));
-  const combinedStr = normalizeBytes(atob(enc.ct));
+  const ivStr = atob(enc.iv);
+  const combinedStr = atob(enc.ct);
   if (combinedStr.length < 16) {
     throw new Error('Invalid ciphertext: too short for tag');
   }
   const ciphertextStr = combinedStr.slice(0, -16);
   const tagStr = combinedStr.slice(-16);
   const keyStr = normalizeKeyBytes(aesKey);
-  if (![16, 24, 32].includes(keyStr.length)) {
+  if (!keyStr || ![16, 24, 32].includes(keyStr.length)) {
     throw new Error('Invalid AES key length');
   }
   const decipher = forge.cipher.createDecipher('AES-GCM', keyStr);
@@ -311,7 +311,11 @@ async function aesDecrypt(enc, aesKey) {
     throw new Error('AES-GCM decryption failed');
   }
   const plain = decipher.output.toString('utf8');
-  return JSON.parse(plain);
+  try {
+    return JSON.parse(plain);
+  } catch (e) {
+    throw new Error('Decryption produced invalid JSON (server may have returned non-encrypted response)');
+  }
 }
 // ---------------- Session Management ----------------
 let aesKey = null;
