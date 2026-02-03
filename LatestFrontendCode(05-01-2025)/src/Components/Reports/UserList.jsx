@@ -643,7 +643,6 @@ const UserList = () => {
             textAlign: 'center', // Centering date text
             fontSize: 12,
             color: '#777',
-            marginTop: 2,
             marginBottom: 5,
             marginTop: 5,
         },
