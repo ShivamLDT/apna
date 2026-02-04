@@ -600,6 +600,7 @@ def restoretest():
                 # if  os.path.exists(target_file_name): 
                 #     os.remove(target_file_name)
                 tempfilecreate=None
+                pZip = None
                 try:
                     for file in file_metada:
                         extracted_data=b''
@@ -640,10 +641,17 @@ def restoretest():
                                 else:
                                     extracted_data= response_from_server.content
                                 
-                        filetype= (magic.from_buffer(extracted_data))
+                        filetype = ""
+                        if magic is not None:
+                            try:
+                                filetype = magic.from_buffer(extracted_data) or ""
+                            except Exception:
+                                filetype = ""
+                        if not filetype and isinstance(extracted_data, (bytes, bytearray)) and len(extracted_data) >= 2 and extracted_data[:2] == b"\x1f\x8b":
+                            filetype = "gzip"
 
                         # extracted_data = BytesIO(extracted_data)
-                        if filetype.__contains__("gzip"):
+                        if filetype and "gzip" in filetype:
                             try:
                                 with gzip.GzipFile(fileobj=BytesIO(extracted_data), mode='rb') as gz_file:
                                     extracted_data = gz_file.read()
@@ -760,7 +768,7 @@ def restoretest():
                         error_message=str(restore_error),
                         extra={"event": "chunk_failed"},
                     )
-                    if os.path.exists(tempfilecreate):
+                    if tempfilecreate and os.path.exists(tempfilecreate):
                         os.remove(tempfilecreate)
 
                 del extracted_data
@@ -769,7 +777,7 @@ def restoretest():
 
                 try:
                     
-                    if os.path.exists(tempfilecreate):
+                    if tempfilecreate and os.path.exists(tempfilecreate):
 
                         if os.path.exists(target_file_name):
                             ## write your existing file backup code here

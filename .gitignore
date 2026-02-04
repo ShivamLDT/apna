@@ -126,6 +126,13 @@ desktop.ini
 *.vul
 *.rara
 
+# FlaskWebProject3: React app build output, local client list
+FlaskWebProject3/FlaskWebProject3/rapp/
+FlaskWebProject3/clientnodes.json
+
+# fClient: local config
+fClient/config.ini
+
 # Flask instance folder
 instance/
 
