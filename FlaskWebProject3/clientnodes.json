@@ -122,12 +122,12 @@
     },
     "lastConnectedTime": "07/01/2026, 06:17:50 PM"
   },
-  "http://192.168.1.10:7777": {
+  "http://192.168.1.13:7777": {
     "key": "5ea19afa4e2d68bbaca99c460d3ef34a00dfee042ba3e875bc3e6abe5358d3fd",
-    "ipAddress": "http://192.168.1.10:7777",
+    "ipAddress": "http://192.168.1.13:7777",
     "agent": "DESKTOP-F1DRACU",
     "lastConnected": "1769748806.5822482",
-    "ip": "192.168.1.10/192.168.1.10",
+    "ip": "192.168.1.13/192.168.1.13",
     "data": {
       "os": {
         "name": "Windows",
@@ -183,7 +183,7 @@
       "client_version": "26.1.12.1",
       "client_activation_date": "n/a",
       "client_connected_nodes": null,
-      "ip_addresses": "192.168.1.10",
+      "ip_addresses": "192.168.1.13",
       "mac_addresses": "88:78:73:82:5c:fd"
     },
     "lastConnectedTime": "30/01/2026, 10:23:26 AM"

@@ -131,6 +131,44 @@ backupprofilescoll = []
 client_backups = {}
 client_backups_data_lock = threading.Lock()
 CLIENT_BACKUPS_DATA_FILE = "backupdata.json"
+def _client_db_path(client_key, location=None):
+    """Return the client backup DB file path with .db extension so server and DB Browser use the same file."""
+    loc = location or app.config.get("location") or os.getcwd()
+    key = (client_key if isinstance(client_key, str) else str(client_key)).strip()
+    if not key.endswith(".db"):
+        key = key + ".db"
+    return os.path.join(loc, key)
+
+
+def _ensure_backups_m_table(db_path):
+    """Ensure backups_M table exists in the DB (create + add columns if missing). Safe for old or empty DBs."""
+    if not db_path or not os.path.isfile(db_path):
+        return
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS backups_M (id FLOAT NOT NULL, date_time FLOAT, from_computer VARCHAR, from_path VARCHAR, data_repo VARCHAR, mime_type VARCHAR, file_name VARCHAR, size FLOAT, pNameText VARCHAR, pIdText VARCHAR, bkupType VARCHAR, PRIMARY KEY (id))"
+        )
+        for alter in (
+            "ALTER TABLE backups_M ADD COLUMN sum_all INTEGER",
+            "ALTER TABLE backups_M ADD COLUMN sum_done INTEGER",
+            "ALTER TABLE backups_M ADD COLUMN done_all INTEGER",
+            "ALTER TABLE backups_M ADD COLUMN status VARCHAR",
+            "ALTER TABLE backups_M ADD COLUMN mode VARCHAR",
+            "ALTER TABLE backups_M ADD COLUMN data_repod VARCHAR",
+            "ALTER TABLE backups_M ADD COLUMN repid VARCHAR",
+        ):
+            try:
+                cur.execute(alter)
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
 clientnodes_x = {
     # "250.250.250.250": {
     #     "ipAddress": "250.250.250.250:7777",
@@ -1029,22 +1067,57 @@ import tempfile
 CLIENTNODES_FILE = "clientnodes.json"
 
 
+def _get_clientnodes_path():
+    """Use site_config_dir so the file is found regardless of process cwd."""
+    try:
+        af = app.config.get("AppFolders")
+        if af and getattr(af, "site_config_dir", None):
+            d = af.site_config_dir
+            if d:
+                os.makedirs(d, exist_ok=True)
+                return os.path.join(d, "clientnodes.json")
+    except Exception:
+        pass
+    return CLIENTNODES_FILE
+
+
 def load_clientnodes_x():
-    if not os.path.exists(CLIENTNODES_FILE):
-        return {}
-    with open(CLIENTNODES_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    path = _get_clientnodes_path()
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data:
+                    return data
+        except Exception:
+            pass
+    # Fallback: legacy path (cwd) so existing clientnodes.json is not ignored
+    if path != CLIENTNODES_FILE and os.path.exists(CLIENTNODES_FILE):
+        try:
+            with open(CLIENTNODES_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if data:
+                    # Migrate to new path so next load uses it
+                    try:
+                        save_clientnodes_x(data)
+                    except Exception:
+                        pass
+                    return data
+        except Exception:
+            pass
+    return {}
 
 
 def save_clientnodes_x(clientnodes_x):
-    directory = os.path.dirname(CLIENTNODES_FILE) or "."
+    path = _get_clientnodes_path()
+    directory = os.path.dirname(path) or "."
 
     fd, tmp_path = tempfile.mkstemp(dir=directory)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(clientnodes_x, f, indent=2)
 
-        os.replace(tmp_path, CLIENTNODES_FILE)
+        os.replace(tmp_path, path)
 
     finally:
         if os.path.exists(tmp_path):
@@ -2321,9 +2394,8 @@ def backupprofilescreate():
                             # ):
                             # Capture values before thread (request context is lost in thread)
                             url_root = request.url_root
-                            db_path = os.path.join(
-                                app.config["location"], f"{c}.db"
-                            )
+                            db_path = _client_db_path(c)
+
                             def create_db_task():
                                 requests.post(
                                     url_root + "create_database",
@@ -2382,7 +2454,7 @@ def backupprofilescreate():
                             # finally:
                             #     m.close()
                             x=c
-                            m=JobsRecordManager(f"{x}.db", "records.json",app=app)
+                            m=JobsRecordManager(_client_db_path(x), "records.json",app=app)
                             try:
                                 #m.add_records(res.json().get('data'))
                                 m.add_records(combined_response[0])
@@ -3545,7 +3617,7 @@ def data_download():
 
     # conn = sqlite3.connect(f"{obj}.db")
     s_manager = SQLiteManager()
-    dbname = os.path.join(app.config["location"], obj)
+    dbname = _client_db_path(obj)
     qrs = [
         (
             dbname,
@@ -3990,7 +4062,7 @@ def upload_file_unc():
                 extra={"event": "manifest_update", "manifest_path": _manifest_path(temp_manifest_dir, file_name, j_sta)},
             )
         done_all = 1 if jsvkrgs["totalfiles"] == jsvkrgs["currentfile"] else 0
-        dbname = os.path.join(app.config["location"], scom)
+        dbname = _client_db_path(scom)
         qrs = [
             (
                 dbname,
@@ -4334,7 +4406,7 @@ def upload_file_nas():
         if mime_type == "file":
             file_name = os.path.basename(file_path)
         done_all = 1 if jsvkrgs["totalfiles"] == jsvkrgs["currentfile"] else 0
-        dbname = os.path.join(app.config["location"], scom)
+        dbname = _client_db_path(scom)
         qrs = [
             (
                 dbname,
@@ -4864,9 +4936,9 @@ def upload_file():
     bAWS_backup = False
     bAZURE_backup = False
 
+    rep_upper = str(rep).upper().replace(" ", "")
     if (decompressed_chunk) == GD_DATA_BLOCK:
         print("this entry should save cloud metadata")
-        rep_upper = str(rep).upper().replace(" ", "")
         if rep_upper in ["GOOGLEDRIVE", "GDRIVE"]:
             bGDBackup = True
         elif rep_upper == "ONEDRIVE":
@@ -4875,6 +4947,15 @@ def upload_file():
             bAWS_backup = True
         elif rep_upper == "AZURE":
             bAZURE_backup = True
+    # Fallback: treat as cloud metadata when gfidi is present and repo is cloud (so record appears even if body differed)
+    elif gfidi and rep_upper in ["GOOGLEDRIVE", "GDRIVE"]:
+        bGDBackup = True
+    elif gfidi and rep_upper == "ONEDRIVE":
+        bOneDrive_backup = True
+    elif gfidi and rep_upper == "AWSS3":
+        bAWS_backup = True
+    elif gfidi and rep_upper == "AZURE":
+        bAZURE_backup = True
 
 
     # try:
@@ -5044,11 +5125,20 @@ def upload_file():
                         },
                     )
 
-                if save_all(
-                    file_name, total_chunks, tcc, abort, epc, currentfile, totalfiles,bNoBackup=bNoBackup,tfi=tfi,
-                    bGD_backup=bGDBackup, bOneDrive_backup=bOneDrive_backup,
-                    bAWS_backup=bAWS_backup, bAZURE_backup=bAZURE_backup
-                ):
+                # Cloud (GDrive/OneDrive/AWS/Azure): persist metadata on every chunk so restore list shows the file immediately
+                is_cloud = bGDBackup or bOneDrive_backup or bAWS_backup or bAZURE_backup
+                run_save_final = (
+                    save_all(
+                        file_name, total_chunks, tcc, abort, epc, currentfile, totalfiles,bNoBackup=bNoBackup,tfi=tfi,
+                        bGD_backup=bGDBackup, bOneDrive_backup=bOneDrive_backup,
+                        bAWS_backup=bAWS_backup, bAZURE_backup=bAZURE_backup
+                    )
+                    and (
+                        int(seq_num) == int(total_chunks)
+                        or is_cloud  # cloud: save metadata every chunk so record appears in restore list while upload runs
+                    )
+                )
+                if run_save_final:
                     job_id = ensure_job_id(j_sta)
                     log_event(
                         logger,
@@ -6645,7 +6735,7 @@ def save_final(
                 # xession = Session()
                 from sqlite_managerA import SQLiteManager
                 xession = SQLiteManager()
-                dbname = os.path.join(app.config["location"], epc)
+                dbname = _client_db_path(epc)
                 from sqlalchemy import func
                 thiscurrentfile = currentfile if bdone else float(currentfile) - 1
                 try:
@@ -7542,7 +7632,8 @@ def save_final_old(
                 from datetime import date
 
                 var = BackupLogs()
-                engine = create_engine(f"sqlite:///{epc}.db")
+                _db_path = _client_db_path(epc)
+                engine = create_engine("sqlite:///" + _db_path.replace("\\", "/"))
                 Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
                 xession = Session()
                 from sqlalchemy import func
@@ -7910,13 +8001,14 @@ def save_savelogdata(
     # xession = Session()
     from sqlite_managerA import SQLiteManager
     from module2 import create_database
-    xession = SQLiteManager()
-    dbname = os.path.join(app.config["location"], epc)
+    dbname = _client_db_path(epc)
+    logger.info(f"save_savelogdata: DB path = {dbname}")
     # Ensure DB has backups_M (and related tables) so INSERT succeeds (e.g. for GDrive backup)
     try:
         create_database(dbname)
     except Exception as _:
         pass
+    xession = SQLiteManager()
     sql_logs = None
     sql_main = None
     size_val = size_data #os.path.getsize(output_file_path) if os.path.exists(output_file_path) else 0
@@ -8214,7 +8306,7 @@ def save_saveinit_log():
 
     from sqlite_managerA import SQLiteManager
     xession = SQLiteManager()
-    dbname = os.path.join(app.config["location"], epc)
+    dbname = _client_db_path(epc)
     create_database(dbname)
 
     values_list = []
@@ -8349,7 +8441,8 @@ def update_filebackup_counts(
     from module2 import BackupLogs, BackupMain
     from datetime import date
     var = BackupLogs()
-    engine = create_engine(f"sqlite:///{epc}.db")
+    _db_path = _client_db_path(epc)
+    engine = create_engine("sqlite:///" + _db_path.replace("\\", "/"))
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     xession = Session()
 
@@ -8478,11 +8571,11 @@ def get_restpre_file_data():
     backup_pid = request.json.get("backup_pid", None)
     file_name = request.json.get("file_name", None)
     obj = request.json.get("obj", None)
-    dbname = os.path.join(app.config["location"], obj)
+    dbname = _client_db_path(obj)
     
     bType = request.json.get("bType", None)
     if bType:
-        engine = create_engine(f"sqlite:///{obj}.db")
+        engine = create_engine("sqlite:///" + dbname.replace("\\", "/"))
         Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
         xession = Session()
         q = xession.query(BackupLogs).filter(
@@ -8734,21 +8827,10 @@ def get_restore_data():
         selectedId = request.json.get("id", "0")
         s_manager = SQLiteManager()
         location_dir = app.config.get("location") or os.getcwd()
-        dbname = os.path.join(location_dir, obj)
+        dbname = _client_db_path(obj, location_dir)
 
-        # Query backups_M (GDrive/cloud metadata) first; fall back to "backups" for legacy LAN
-        qry_m = (
-            "SELECT from_path, file_name FROM backups_M WHERE "
-            + "id = " + str(selectedId)
-            + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
-        )
-        if not all_types and all_selected_types:
-            qry_m += " AND (" + " OR ".join(
-                [f"file_name LIKE '%{name.replace(chr(39), chr(39)+chr(39))}'" for name in all_selected_types]
-            ) + ")"
-
-        # Try multiple DB paths (no extension, .db, etc.) so we find the file that has backups_M
-        exts = ["", ".db", ".sqlite", ".sqlite3", ".db3"]
+        # Build candidate DB paths first (try .db, no ext, etc.)
+        exts = [".db", "", ".sqlite", ".sqlite3", ".db3"]
         bases = [obj, request.json.get("agentName")]
         candidate_paths = []
         for b in bases:
@@ -8759,11 +8841,26 @@ def get_restore_data():
         if dbname not in candidate_paths:
             candidate_paths.insert(0, dbname)
 
+        # Prefer "backups" table (one row per file) so we list all files in the job
+        qry = (
+            "SELECT replace(replace(full_file_name,'',''), '"
+            + os.path.join(obj, "").replace("'", "''") + "','') FROM backups WHERE "
+            + "name = " + str(selectedId)
+            + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
+        )
+        if not all_types and all_selected_types:
+            qry = (
+                "SELECT replace(replace(full_file_name,'',''), '"
+                + os.path.join(obj, "").replace("'", "''") + "','') as xs FROM backups WHERE "
+                + "name = " + str(selectedId)
+                + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "' "
+                + " AND (" + " OR ".join([f"full_file_name LIKE '%{n.replace(chr(39), chr(39)+chr(39))}'" for n in all_selected_types]) + ")"
+            )
         for candidate in candidate_paths:
             if not os.path.isfile(candidate):
                 continue
             try:
-                qrs = [(candidate, [qry_m])]
+                qrs = [(candidate, [qry])]
                 try_results = s_manager.execute_queries(qrs)
             except Exception:
                 continue
@@ -8771,37 +8868,39 @@ def get_restore_data():
                 continue
             status, records = try_results[candidate][0]
             if status == "Success" and records:
-                for row in records:
-                    from_path, file_name = (row[0] or ""), (row[1] or "")
-                    path = (from_path + os.sep + file_name) if file_name else from_path
-                    if path:
-                        file_paths.append(path)
+                for file in records:
+                    file_paths.append(file[0])
                 break
 
-        # Fallback: query legacy "backups" table (LAN backups)
+        # Fallback: backups_M (one row per job; only last file's path when multiple files)
         if not file_paths:
-            qry = (
-                "SELECT replace(replace(full_file_name,'',''), '"
-                + os.path.join(obj, "").replace("'", "''") + "','') FROM backups WHERE "
-                + "name = " + str(selectedId)
+            qry_m = (
+                "SELECT from_path, file_name FROM backups_M WHERE "
+                + "id = " + str(selectedId)
                 + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "'"
             )
             if not all_types and all_selected_types:
-                qry = (
-                    "SELECT replace(replace(full_file_name,'',''), '"
-                    + os.path.join(obj, "").replace("'", "''") + "','') as xs FROM backups WHERE "
-                    + "name = " + str(selectedId)
-                    + " AND data_repo = '" + str(selectedStorageType).replace("'", "''") + "' "
-                    + " AND (" + " OR ".join([f"full_file_name LIKE '%{n.replace(chr(39), chr(39)+chr(39))}'" for n in all_selected_types]) + ")"
-                )
-            qrs = [(dbname, [qry])]
-            results = s_manager.execute_queries(qrs)
-            for db_path, db_results in results.items():
-                for i, (res, recs) in enumerate(db_results):
-                    if res == "Success" and recs:
-                        for file in recs:
-                            file_paths.append(file[0])
-                        break
+                qry_m += " AND (" + " OR ".join(
+                    [f"file_name LIKE '%{name.replace(chr(39), chr(39)+chr(39))}'" for name in all_selected_types]
+                ) + ")"
+            for candidate in candidate_paths:
+                if not os.path.isfile(candidate):
+                    continue
+                try:
+                    qrs = [(candidate, [qry_m])]
+                    try_results = s_manager.execute_queries(qrs)
+                except Exception:
+                    continue
+                if candidate not in try_results or len(try_results[candidate]) == 0:
+                    continue
+                status, records = try_results[candidate][0]
+                if status == "Success" and records:
+                    for row in records:
+                        from_path, file_name = (row[0] or ""), (row[1] or "")
+                        path = (from_path + os.sep + file_name) if file_name else from_path
+                        if path:
+                            file_paths.append(path)
+                    break
 
         backup_jobs_json = build_json_responseX(file_paths)
         if selectedAction == "browse":
@@ -8878,7 +8977,7 @@ def get_restore_data():
             k_qresults=[]
             qresults=[]
             try:
-                dbname = os.path.join(app.config["location"], obj)
+                dbname = _client_db_path(obj)
                 # conn = sqlite3.connect(
                 #     os.path.join(app.config["location"], obj) + ".db"
                 # )
@@ -8907,7 +9006,7 @@ def get_restore_data():
                 # cursor.close()
                 # conn.close()
                 s_manager = SQLiteManager()
-                dbname = os.path.join(app.config["location"], obj)
+                dbname = _client_db_path(obj)
                 files=""
                 backups_query=[]
                 # if len(selectedFiles) <= 0:
@@ -9295,11 +9394,18 @@ def get_restore_data():
                                         pass
                         except Exception:
                             pass
-                    if not manifest_data.get("file_hash") and jsrepd:
-                        for key in ["file_hash", "filehash", "hash", "sha256", "sha256Checksum"]:
-                            if jsrepd.get(key):
-                                manifest_data["file_hash"] = str(jsrepd.get(key))
-                                break
+                    # For cloud restore, use backup_id (file id = content hash). Do not use jsrepd sha256Checksum
+                    # etc. — those can be the hash of the uploaded blob (compressed/encrypted), not the original file.
+                    if not manifest_data.get("file_hash"):
+                        if is_cloud_restore and backup_id:
+                            manifest_data["file_hash"] = str(backup_id)
+                        elif jsrepd:
+                            for key in ["file_hash", "filehash", "hash", "sha256", "sha256Checksum"]:
+                                if jsrepd.get(key):
+                                    manifest_data["file_hash"] = str(jsrepd.get(key))
+                                    break
+                        if not manifest_data.get("file_hash") and backup_id:
+                            manifest_data["file_hash"] = str(backup_id)
                     try:
                         log_event(
                             logger,
@@ -9908,7 +10014,9 @@ def get_restore_data():
         batch_size = 1000
         backup_jobs_json = []
         s_manager = SQLiteManager()
-        dbname = os.path.join(app.config["location"], obj)
+        # Use agent name when obj is None (e.g. agent not in clientnodes_x / no IP) so we don't query None.db
+        effective_key = obj or selectedAgent or requested_agent
+        dbname = _client_db_path(effective_key) if effective_key else None
         restore_query = (
             "SELECT backups_M.id,date_time,from_computer,from_path,"
             + " data_repo,mime_type,file_name,size,pNameText,"
@@ -9927,31 +10035,54 @@ def get_restore_data():
         # Try multiple path variants: DBs may have no extension or .db/.sqlite/.sqlite3/.db3
         # and may be keyed by computer_id (obj) or by agent name (selectedAgent)
         location_dir = app.config.get("location") or ""
-        db_extensions = ("", ".db", ".sqlite", ".sqlite3", ".db3")
+        db_extensions = (".db", "", ".sqlite", ".sqlite3", ".db3")
         candidate_paths = []
-        for base_name in (obj, selectedAgent, requested_agent):
+        # Include key-based DB for this agent so we find backups even when obj is None (e.g. agent name used as effective_key)
+        agent_key_for_db = None
+        if not obj and (selectedAgent or requested_agent):
+            try:
+                if not clientnodes_x:
+                    clientnodes_x.update(load_clientnodes_x())
+                for _ip, node in clientnodes_x.items():
+                    if (node.get("agent") or "").strip().lower() == (selectedAgent or requested_agent or "").strip().lower():
+                        agent_key_for_db = (node.get("key") or "").strip()
+                        if agent_key_for_db:
+                            break
+            except Exception:
+                pass
+        bases_for_candidates = [obj, selectedAgent, requested_agent]
+        if agent_key_for_db and agent_key_for_db not in bases_for_candidates:
+            bases_for_candidates = [agent_key_for_db, obj, selectedAgent, requested_agent]
+        for base_name in bases_for_candidates:
             if not base_name:
                 continue
             for ext in db_extensions:
                 p = os.path.join(location_dir, base_name + ext)
                 if p not in candidate_paths:
                     candidate_paths.append(p)
-        for base_name in (obj, selectedAgent):
+        for base_name in bases_for_candidates:
             if not base_name:
                 continue
             for ext in db_extensions:
                 p = os.path.join(os.getcwd(), base_name + ext)
                 if p not in candidate_paths:
                     candidate_paths.append(p)
-        # If no explicit paths yet, ensure dbname (location/obj) is tried
-        if dbname not in candidate_paths:
+        # If no explicit paths yet, ensure dbname (location/obj) is tried (skip when dbname is invalid e.g. None.db)
+        if dbname and dbname not in candidate_paths:
             candidate_paths.insert(0, dbname)
+        # Prefer key-based DB when we have it so key-based backup data is found (e.g. 5ea19afa....db)
+        if agent_key_for_db:
+            key_db_path = _client_db_path(agent_key_for_db, location_dir)
+            if key_db_path in candidate_paths and candidate_paths[0] != key_db_path:
+                candidate_paths.remove(key_db_path)
+                candidate_paths.insert(0, key_db_path)
         results = {}
         all_records = []  # aggregate from all candidate DBs when fetchAll so no backup is missed
         seen_ids = set()
         for candidate in candidate_paths:
             if not os.path.isfile(candidate):
                 continue
+            _ensure_backups_m_table(candidate)  # ensure table exists (e.g. old DB had only backups)
             qrs = [(candidate, [restore_query])]
             try:
                 try_results = s_manager.execute_queries(qrs)
@@ -9981,6 +10112,7 @@ def get_restore_data():
                         continue
                     if candidate in candidate_paths:
                         continue
+                    _ensure_backups_m_table(candidate)
                     qrs = [(candidate, [restore_query])]
                     try_results = s_manager.execute_queries(qrs)
                     if candidate in try_results and len(try_results[candidate]) > 0:
@@ -10005,6 +10137,7 @@ def get_restore_data():
                     candidate = os.path.join(location_dir, fname)
                     if not os.path.isfile(candidate):
                         continue
+                    _ensure_backups_m_table(candidate)
                     qrs = [(candidate, [restore_query])]
                     try_results = s_manager.execute_queries(qrs)
                     if candidate in try_results and len(try_results[candidate]) > 0:
@@ -10014,7 +10147,8 @@ def get_restore_data():
                             break
             except Exception:
                 pass
-        if not results:
+        if not results and dbname:
+            _ensure_backups_m_table(dbname)
             results = s_manager.execute_queries([(dbname, [restore_query])])
 
         for db_path, db_results in results.items():
@@ -10049,12 +10183,12 @@ def get_restore_data():
                                     str(dict(job)["from_path"]).replace(
                                         "{{DRIVE}}", ":"
                                     )
-                                ).replace(obj + "\\", ""),
+                                ).replace((obj or effective_key or "") + "\\", ""),
                                 "target_location": str(
                                     str(dict(job)["from_path"]).replace(
                                         "{{DRIVE}}", ":"
                                     )
-                                ).replace(obj + "\\", ""),
+                                ).replace((obj or effective_key or "") + "\\", ""),
                                 "data_repo": dict(job)["data_repo"],
                                 "type": dict(job)["mime_type"],
                                 "size": dict(job)["size"],
@@ -10279,7 +10413,9 @@ def client_nodes():
 
     if not clientnodes_x:
         clientnodes_x.update(load_clientnodes_x())
-        update_clientnodes_list(clientnodes_x, clientnodes, clientnodes2x)
+    # Always sync clientnodes/clientnodes2x from clientnodes_x so endpoint list is current
+    # (e.g. after in-memory updates from register/tellme without a reload)
+    update_clientnodes_list(clientnodes_x, clientnodes, clientnodes2x)
 
     # data = []
     # bNotFound = True

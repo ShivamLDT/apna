@@ -470,8 +470,6 @@ const Server = () => {
         networkRow: {
             flexDirection: 'row',  // Ensures the title and MAC addresses are in a row
             justifyContent: 'space-between',  // Distributes columns evenly
-            alignItems: 'flex-start',  // Aligns items at the top of the row
-            flexDirection: 'row', // Keep title and value in the same row
             alignItems: 'center',
             paddingHorizontal: 10,
 
@@ -567,11 +565,7 @@ const Server = () => {
             flex: 1,
             textAlign: 'center',
         },
-        text: {
-            fontSize: 12,
-            color: '#555',
-            marginBottom: 5,
-        },
+        
         // New Styles for Table View
         tableContainer: {
             borderWidth: 1,

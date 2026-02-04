@@ -128,7 +128,9 @@ const PairedEndpoints = () => {
             fontFamily: 'Helvetica',
             backgroundColor: '#f7f7f7',
             textAlign: 'center',
-
+            margin: 10,
+            padding: 10,
+            flexGrow: 1,
         },
         headerSection: {
             flexDirection: 'row',
@@ -148,7 +150,6 @@ const PairedEndpoints = () => {
             textAlign: 'center', // Centering the text
             marginLeft: 20,
             marginRight: 20, // Optional, for padding around the text
-            textAlign: 'center',
         },
         title: {
             fontSize: 16,
@@ -168,11 +169,6 @@ const PairedEndpoints = () => {
         page: {
             flexDirection: 'row',
             backgroundColor: '#FFFFFF', // Change to white background
-        },
-        section: {
-            margin: 10,
-            padding: 10,
-            flexGrow: 1,
         },
         header: {
             fontSize: 20,

@@ -46,18 +46,14 @@ function decryptData(encryptedData) {
     }
 }
 
-// Keep completed/failed restore jobs for 24h; always show in-progress jobs
-const JOB_RETENTION_MS = 24 * 60 * 60 * 1000;
+// Show only currently running or pending restore jobs (hide completed/failed)
 const filterRecentRestoreJobs = (jobs, animatedData, agent) => {
-    const now = Date.now();
     return jobs.filter((job) => {
         const displayJob = animatedData?.[agent]?.find((j) => String(j.id) === String(job.id)) || job;
         const status = displayJob?.status;
         const finished = displayJob?.finished;
         const isInProgress = status === "counting" || (!finished && status !== "completed" && status !== "failed");
-        if (isInProgress) return true;
-        const jobTime = job?.id ? (typeof job.id === "number" ? job.id * 1000 : parseFloat(job.id) * 1000) : 0;
-        return jobTime > 0 && (now - jobTime) < JOB_RETENTION_MS;
+        return isInProgress;
     });
 };
 
