@@ -1430,7 +1430,6 @@ const Restore = () => {
             textAlign: 'center',
             fontSize: 12,
             color: '#777',
-            marginTop: 2,
             marginBottom: 5,
             marginTop: 5,
         },

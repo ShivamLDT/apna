@@ -107,6 +107,40 @@ function u8ToStr(u8) {
   }
   return result.join('');
 }
+function normalizeKeyBytes(key) {
+  if (!key) return '';
+  if (typeof key === 'string') return key;
+  if (key instanceof Uint8Array) {
+    return u8ToStr(key);
+  }
+  if (Array.isArray(key)) {
+    return u8ToStr(new Uint8Array(key));
+  }
+  if (key.buffer && key.byteLength != null) {
+    return u8ToStr(new Uint8Array(key));
+  }
+  if (typeof key.getBytes === 'function') {
+    return key.getBytes();
+  }
+  return '';
+}
+function normalizeBytes(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (value instanceof Uint8Array) {
+    return forge.util.binary.raw.encode(value);
+  }
+  if (Array.isArray(value)) {
+    return forge.util.binary.raw.encode(new Uint8Array(value));
+  }
+  if (value.buffer && value.byteLength != null) {
+    return forge.util.binary.raw.encode(new Uint8Array(value));
+  }
+  if (typeof value.getBytes === 'function') {
+    return value.getBytes();
+  }
+  return '';
+}
 function strToU8(str) {
   const u8 = new Uint8Array(str.length);
   for (let i = 0; i < str.length; i++) {
@@ -233,7 +267,10 @@ async function generateAESKey() {
 async function aesEncrypt(data, aesKey) {
   const plaintext = JSON.stringify(data);
   const ivBytes = forge.random.getBytesSync(12);
-  const keyStr = u8ToStr(aesKey);
+  const keyStr = normalizeKeyBytes(aesKey);
+  if (![16, 24, 32].includes(keyStr.length)) {
+    throw new Error('Invalid AES key length');
+  }
   const cipher = forge.cipher.createCipher('AES-GCM', keyStr);
   cipher.start({ iv: ivBytes, tagLength: 128 });
   cipher.update(forge.util.createBuffer(plaintext, 'utf8'));
@@ -258,7 +295,10 @@ async function aesDecrypt(enc, aesKey) {
   }
   const ciphertextStr = combinedStr.slice(0, -16);
   const tagStr = combinedStr.slice(-16);
-  const keyStr = u8ToStr(aesKey);
+  const keyStr = normalizeKeyBytes(aesKey);
+  if (!keyStr || ![16, 24, 32].includes(keyStr.length)) {
+    throw new Error('Invalid AES key length');
+  }
   const decipher = forge.cipher.createDecipher('AES-GCM', keyStr);
   decipher.start({
     iv: ivStr,
@@ -271,7 +311,11 @@ async function aesDecrypt(enc, aesKey) {
     throw new Error('AES-GCM decryption failed');
   }
   const plain = decipher.output.toString('utf8');
-  return JSON.parse(plain);
+  try {
+    return JSON.parse(plain);
+  } catch (e) {
+    throw new Error('Decryption produced invalid JSON (server may have returned non-encrypted response)');
+  }
 }
 // ---------------- Session Management ----------------
 let aesKey = null;

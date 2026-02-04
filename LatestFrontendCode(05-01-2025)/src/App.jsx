@@ -30,9 +30,9 @@ import SupportPage from './Components/Support/Support';
 import UserManager from './Components/CreateUser/UserManager'
 import ChatbotPage from './Components/Support/ChatbotPage';
 import ChatBot from './Components/Support/ChatBot';
-import SystemLogs from './Components/Reports/Logs/SystemLogs';
-import EventLogs from './Components/Reports/Logs/EventLogs';
-import TaskLogs from './Components/Reports/Logs/TaskLogs';
+import SystemLogs from './Components/Reports/Logs/SystemLogs.jsx';
+import EventLogs from './Components/Reports/Logs/EventLogs.jsx';
+import TaskLogs from './Components/Reports/Logs/TaskLogs.jsx';
 import AppProviders from "./Context/AppProviders";
 import { ensureSession } from './axiosinstance';
 // import useInactivityLogout from "./useInactivityLogout";
