@@ -6,6 +6,7 @@ from smb.SMBConnection import SMBConnection
 import   netifaces
 import ipaddress
 
+
 def list_files_on_smb(server_ip, share_name, username, password, folder_path):
     print("Establish the SMB connection")
     conn = SMBConnection(username, password,"",server_ip, use_ntlm_v2=True,is_direct_tcp=True)
