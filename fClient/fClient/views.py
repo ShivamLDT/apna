@@ -310,6 +310,17 @@ def restoretest():
         tccnstamp = base64.b64decode(tccnstamp)
         tccnstamp = gzip.decompress(tccnstamp)
         tccnstamp = tccnstamp.decode("UTF-8")
+
+        _body = request.get_json(silent=True) or {}
+        try:
+            fci = int(_body.get("fci", 1))
+            ftotal = int(_body.get("ftotal", 1))
+            if ftotal < 1:
+                ftotal = 1
+            if fci < 1:
+                fci = 1
+        except (TypeError, ValueError):
+            fci, ftotal = 1, 1
         
         try:
             import pytz
@@ -1670,6 +1681,11 @@ def restoretest():
                     def _unc_restore_progress_cb(chunk_idx, total_chunks, progress_pct):
                         """Emit restore progress to server for UI update."""
                         try:
+                            if ftotal > 1:
+                                overall_pct = 100.0 * ((fci - 1) + progress_pct / 100.0) / ftotal
+                                overall_pct = min(100.0, max(0.0, overall_pct))
+                            else:
+                                overall_pct = float(progress_pct)
                             backup_status = {
                                 "restore_flag": True,
                                 "backup_jobs": [
@@ -1679,7 +1695,7 @@ def restoretest():
                                         "name": p_NameText,
                                         "agent": str(app.config.get("getCodeHost", "")),
                                         "scheduled_time": dt_restore.fromtimestamp(float(tccnstamp)).strftime("%H:%M:%S"),
-                                        "progress_number": float(progress_pct),
+                                        "progress_number": float(overall_pct),
                                         "id": float(tccnstamp),
                                         "repo": rep,
                                         "filename": os.path.sep.join(tccn) if isinstance(tccn, list) else tccn,
@@ -1918,6 +1934,7 @@ def restoretest2():
         pid = request.headers.get("pid")
         obj = request.headers.get("obj")        
         objtarget = request.headers.get("objtarget",None)
+        p_NameText = request.headers.get("pnametext", None) or "Restore"
 
         
         tcc = request.headers.get("tcc")
@@ -2020,6 +2037,17 @@ def restoretest2():
         tccnstamp = base64.b64decode(tccnstamp)
         tccnstamp = gzip.decompress(tccnstamp)
         tccnstamp = tccnstamp.decode("UTF-8")
+
+        _body2 = request.get_json(silent=True) or {}
+        try:
+            fci = int(_body2.get("fci", 1))
+            ftotal = int(_body2.get("ftotal", 1))
+            if ftotal < 1:
+                ftotal = 1
+            if fci < 1:
+                fci = 1
+        except (TypeError, ValueError):
+            fci, ftotal = 1, 1
         
         try:
             import pytz
@@ -2290,6 +2318,11 @@ def restoretest2():
                     def _unc_restore_progress_cb(chunk_idx, total_chunks, progress_pct):
                         """Emit restore progress to server for UI update."""
                         try:
+                            if ftotal > 1:
+                                overall_pct = 100.0 * ((fci - 1) + progress_pct / 100.0) / ftotal
+                                overall_pct = min(100.0, max(0.0, overall_pct))
+                            else:
+                                overall_pct = float(progress_pct)
                             backup_status = {
                                 "restore_flag": True,
                                 "backup_jobs": [
@@ -2299,7 +2332,7 @@ def restoretest2():
                                         "name": p_NameText,
                                         "agent": str(app.config.get("getCodeHost", "")),
                                         "scheduled_time": dt_restore.fromtimestamp(float(tccnstamp)).strftime("%H:%M:%S"),
-                                        "progress_number": float(progress_pct),
+                                        "progress_number": float(overall_pct),
                                         "id": float(tccnstamp),
                                         "repo": rep,
                                         "filename": os.path.sep.join(tccn) if isinstance(tccn, list) else tccn,

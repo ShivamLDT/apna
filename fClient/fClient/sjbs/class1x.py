@@ -1892,6 +1892,8 @@ def create_localbkp_job_original(
                 a_results=[]#for holding values how many files have been backedup
                 if f_files:
                     failed = 0
+                    total_folder_size = get_total_folder_size(f_files)
+                    folder_progress_state = FolderProgressState(total_folder_size)
 
                     max_threads = min(32, (os.cpu_count() or 4) * 4)
                     for idx, file_data in enumerate(f_files):
@@ -1906,10 +1908,10 @@ def create_localbkp_job_original(
                             "bkupType": bkupType,
                             "chunk_size": 1024 * 1024 * 64,
                             "src_location": src_folder,
-                            # "accuracy": 0.99,
-                            # "finished": False,
                             "OpendedSh": OpendedSh,
-                            "tfi": this_file_id
+                            "tfi": this_file_id,
+                            "folder_progress_state": folder_progress_state,
+                            "total_folder_size": total_folder_size,
                         }
                         ff_filesParams.append((args, kwargs))
 
@@ -1963,6 +1965,42 @@ def create_localbkp_job_original(
                             finally:
                                 # Remove the future to free memory
                                 del future_to_file[future]
+
+                    # Folder upload complete: force progress bar to 100% and mark job finished
+                    try:
+                        if cl_socketio_obj.connected:
+                            cl_socketio_obj.disconnect()
+                        if not cl_socketio_obj.connected:
+                            cl_socketio_obj.connect(
+                                f"ws://{app.config['server_ip']}:{app.config['server_port']}",
+                                wait_timeout=5,
+                                retry=True,
+                            )
+                        if cl_socketio_obj.connected:
+                            cl_socketio_obj.emit(
+                                "backup_data",
+                                {
+                                    "backup_jobs": [
+                                        {
+                                            "status": "finished",
+                                            "reason": "success",
+                                            "cloud": repo,
+                                            "name": p_NameText,
+                                            "scheduled_time": datetime.datetime.fromtimestamp(float(job_Start)).strftime("%H:%M:%S"),
+                                            "agent": str(str(app.config.get("getCodea", None))),
+                                            "id": job_Start,
+                                            "filename": f_files[-1]["path"] if f_files else "",
+                                            "repo": repo,
+                                            "progress_number_upload": 100.0,
+                                            "progress_number": 100.0,
+                                            "finished": True,
+                                            "accuracy": accuracy,
+                                        }
+                                    ]
+                                },
+                            )
+                    except Exception:
+                        pass
 
                     #25/07/2025        start
                     # for filez in f_files:
@@ -2184,33 +2222,29 @@ def create_localbkp_job_original(
         print("")
     try:
         if cl_socketio_obj.connected:
+            # Send as object (not json.dumps) so frontend receives data.backup_jobs and can set progress to 100%
             cl_socketio_obj.emit(
                 "backup_data",
-                json.dumps(
-                    {
-                        "backup_jobs": [
-                            {
-                                "status":"finished",
-                                "reason":"success",
-                                "paused":False,
-                                "name": p_NameText,
-                                "scheduled_time": datetime.datetime.fromtimestamp(
-                                    float(job_Start)
-                                ).strftime(
-                                    "%H:%M:%S"
-                                ),
-                                "agent": getCodeHost(),
-                                #"progress_number": 100.00 -float((100 * failed) / len(f_files)),
-                                "progress_number":  float((100 * icurfile) / float(len(f_files))),#100.00 -float((100 * failed) / len(f_files)),
-                                "accuracy":accuracy,
-                                "finished":True,
-                                "id": job_Start,
-                                "repo":repo
-                            }
-                        ]
-                    }
-                ),
-                "/",
+                {
+                    "backup_jobs": [
+                        {
+                            "status": "finished",
+                            "reason": "success",
+                            "paused": False,
+                            "name": p_NameText,
+                            "scheduled_time": datetime.datetime.fromtimestamp(
+                                float(job_Start)
+                            ).strftime("%H:%M:%S"),
+                            "agent": getCodeHost(),
+                            "progress_number": float((100 * icurfile) / float(len(f_files))) if f_files else 100.0,
+                            "progress_number_upload": 100.0,
+                            "accuracy": accuracy,
+                            "finished": True,
+                            "id": job_Start,
+                            "repo": repo,
+                        }
+                    ]
+                },
             )
             if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
     except:
@@ -2259,6 +2293,43 @@ def run_start_file_streaming(args_kwargs):
             "args": args,
             "kwargs": kwargs
         }
+
+
+class FolderProgressState:
+    """Thread-safe progress for folder upload: progress = (uploaded_bytes / total_bytes) * 100."""
+    __slots__ = ("_lock", "_uploaded_bytes", "_total_bytes")
+
+    def __init__(self, total_bytes):
+        if total_bytes < 1:
+            total_bytes = 1
+        self._lock = threading.Lock()
+        self._uploaded_bytes = 0
+        self._total_bytes = int(total_bytes)
+
+    def add_bytes(self, n):
+        with self._lock:
+            self._uploaded_bytes += n
+
+    def get_progress_pct(self):
+        with self._lock:
+            if self._total_bytes <= 0:
+                return 0.0
+            # Cap at 100%; treat >= total as 100% (handles rounding / size mismatch after compression)
+            pct = 100.0 * self._uploaded_bytes / self._total_bytes
+            return min(100.0, pct)
+
+
+def get_total_folder_size(file_list):
+    """Sum file sizes for a list of items with 'path' key (bytes). Safe for missing/inaccessible files."""
+    total = 0
+    for item in file_list:
+        path = item.get("path") if isinstance(item, dict) else item
+        try:
+            total += os.path.getsize(path)
+        except (OSError, FileNotFoundError):
+            pass
+    return total
+
 
 from email.utils import parsedate_to_datetime
 def get_date(source: str = ""):
@@ -2313,6 +2384,8 @@ def start_file_streaming(
     finished=False,
     OpendedSh = None,
     tfi= None,
+    folder_progress_state=None,
+    total_folder_size=None,
 ):
     # import os, math, gzip, base64, requests
     # from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -2662,6 +2735,7 @@ def start_file_streaming(
             while chunk_data:
                 i=i+1
                 t_c_count=t_c_count-1
+                original_chunk_bytes = len(chunk_data) if (bOpen and chunk_data) else 0  # for folder-wide progress
                 chunk = BytesIO()
                 chunk_hash = None
                 if bOpen:
@@ -2958,6 +3032,7 @@ def start_file_streaming(
                                                     ,retry=True
                                                 )
                                             if cl_socketio_obj.connected:
+                                                _pct = folder_progress_state.get_progress_pct() if folder_progress_state is not None else 0.0
                                                 cl_socketio_obj.emit(
                                                         "backup_data",
                                                         {
@@ -2971,10 +3046,7 @@ def start_file_streaming(
                                                                         "%H:%M:%S"
                                                                     ),
                                                                     "agent": str(str(app.config.get("getCodea",None))),
-                                                                    "progress_number_upload": float(
-                                                                        0.0
-                                                                    )
-                                                                    ,
+                                                                    "progress_number_upload": float(_pct),
                                                                     "id": job_Start,
                                                                     "filename":file_name,
                                                                     "repo": repo
@@ -3007,6 +3079,7 @@ def start_file_streaming(
                                                 ,retry=True
                                             )
                                         if cl_socketio_obj.connected:
+                                            _pct = folder_progress_state.get_progress_pct() if folder_progress_state is not None else (100 * float(seq_num) / float(num_chunks))
                                             cl_socketio_obj.emit(
                                                     "backup_data",
                                                     {
@@ -3020,10 +3093,7 @@ def start_file_streaming(
                                                                     "%H:%M:%S"
                                                                 ),
                                                                 "agent": str(str(app.config.get("getCodea",None))),
-                                                                "progress_number_upload": float(
-                                                                    100 * (float(seq_num))
-                                                                )
-                                                                / float(num_chunks),
+                                                                "progress_number_upload": float(_pct),
                                                                 "id": job_Start,
                                                                 "filename":file_name,
                                                                 "repo": repo
@@ -3137,6 +3207,8 @@ def start_file_streaming(
                             )
                             break
                         else:
+                            if folder_progress_state is not None:
+                                folder_progress_state.add_bytes(original_chunk_bytes)
                             log_chunk_event(
                                 logger,
                                 logging.DEBUG,
@@ -3147,6 +3219,27 @@ def start_file_streaming(
                                 chunk_index=seq_num,
                                 extra={"event": "chunk_end"},
                             )
+                            try:
+                                if cl_socketio_obj.connected and folder_progress_state is not None:
+                                    cl_socketio_obj.emit(
+                                        "backup_data",
+                                        {
+                                            "backup_jobs": [
+                                                {
+                                                    "cloud": repo,
+                                                    "name": p_NameText,
+                                                    "scheduled_time": datetime.datetime.fromtimestamp(float(job_Start)).strftime("%H:%M:%S"),
+                                                    "agent": str(str(app.config.get("getCodea", None))),
+                                                    "filename": file_name,
+                                                    "repo": repo,
+                                                    "id": job_Start,
+                                                    "progress_number_upload": float(folder_progress_state.get_progress_pct()),
+                                                }
+                                            ]
+                                        },
+                                    )
+                            except Exception:
+                                pass
                     else:
                         try:
                             ret_val = {"total_chunks":num_chunks, "uploaded_chunks" :i,"file":file_name,"upload_result":response.json(),"exception":ssss}

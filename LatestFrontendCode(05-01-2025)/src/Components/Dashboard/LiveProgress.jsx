@@ -173,6 +173,11 @@ const LiveProgressTable = () => {
                 ? Math.max(0, Math.min(100, job.progress_number || 0))
                 : previousJob.progress_number || 0; // Retain previous progress_number
 
+              // Folder upload: progress_number_upload is folder-wide; keep monotonic (never decrease)
+              const incomingUploadProgress = isCloudLevel ? Math.max(0, Math.min(100, job.progress_number_upload || 0)) : 0;
+              const previousUpload = previousJob?.progress_number_upload ?? 0;
+              const progress_number_upload_monotonic = isCloudLevel ? Math.max(previousUpload, incomingUploadProgress) : previousUpload;
+
               const isJobCompleted =
                 (job.finished === true || progressForOverallDisplay >= 100) &&
                 job.status !== "failed";
@@ -187,9 +192,7 @@ const LiveProgressTable = () => {
                   ? Math.max(0, Math.min(100, job.progress_number_file || 0))
                   : previousJob?.progress_number_file || 0,
 
-                progress_number_upload: isCloudLevel
-                  ? Math.max(0, Math.min(100, job.progress_number_upload || 0))
-                  : previousJob?.progress_number_upload || 0,
+                progress_number_upload: progress_number_upload_monotonic,
                   
                 finished: isJobCompleted, // Set finished flag for consistency
                 accuracy: job.accuracy || 100,

@@ -9355,6 +9355,7 @@ def get_restore_data():
                 except Exception:
                     pass
                 
+                progress_complete = (float(totalfiles) - float(pendingfiles)) / float(totalfiles) * 100.0 if totalfiles else 0
                 sktio.emit(
                     "backup_data",
                     {
@@ -9367,10 +9368,9 @@ def get_restore_data():
                                     float(j_sta)
                                 ).strftime("%H:%M:%S"),
                                 "agent": str(torestore_computer_name) ,
-                                "progress_number": float(100 * (float(pendingfiles)))
-                                / float(totalfiles),
+                                "progress_number": float(min(100, max(0, progress_complete))),
                                 "id": j_sta,
-                                "restore_location":RestoreLocation, ##kartik
+                                "restore_location": RestoreLocation,
                             }
                         ]
                     },
@@ -9997,7 +9997,8 @@ def get_restore_data():
                             pass
                 resp_dict.append(res_json)  
                 pendingfiles=pendingfiles-1
-                
+                # Folder-wide restore progress: percent complete (0->100), not remaining
+                progress_complete = (float(ftotal) - float(pendingfiles)) / float(ftotal) * 100.0 if ftotal else 0
                 sktio.emit(
                     "backup_data",
                     {
@@ -10010,16 +10011,40 @@ def get_restore_data():
                                     float(j_sta)
                                 ).strftime("%H:%M:%S"),
                                 "agent": str(torestore_computer_name) ,
-                                "progress_number": float(100 * (float(pendingfiles)))
-                                / float(ftotal),
+                                "progress_number": float(min(100, max(0, progress_complete))),
                                 "id": j_sta,
                                 "restore_accuracy": float(100 * (float(files_restored)))
                                 / float(ftotal),
-                                "restore_location":res_json["RestoreLocation"], ##kartik
+                                "restore_location": res_json.get("RestoreLocation", ""),
                             }
                         ]
                     },
                 )
+            
+            # Restore complete: emit 100% and finished so progress bar reaches 100%
+            try:
+                sktio.emit(
+                    "backup_data",
+                    {
+                        "restore_flag": True,
+                        "backup_jobs": [
+                            {
+                                "restore_flag": True,
+                                "name": backup_name,
+                                "scheduled_time": datetime.datetime.fromtimestamp(float(j_sta)).strftime("%H:%M:%S"),
+                                "agent": str(torestore_computer_name),
+                                "progress_number": 100.0,
+                                "id": j_sta,
+                                "restore_accuracy": 100.0,
+                                "restore_location": RestoreLocation,
+                                "finished": True,
+                                "status": "finished",
+                            }
+                        ]
+                    },
+                )
+            except Exception:
+                pass
             
             filescount=0
             try:

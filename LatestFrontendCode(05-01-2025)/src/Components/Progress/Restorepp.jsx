@@ -340,10 +340,17 @@ const Restorepp = ({ searchQuery = '' }) => {
 
             // Listener for continuous 'backup_data' updates (filtered for restore_flag)
             socket.current.on("backup_data", (data) => {
-                if (!data || !data.backup_jobs) return;
+                if (!data) return;
+                let payload;
+                try {
+                    payload = typeof data === "string" ? JSON.parse(data) : data;
+                } catch {
+                    return;
+                }
+                if (!payload.backup_jobs) return;
 
                 try {
-                    const fetchedData = Array.isArray(data.backup_jobs) ? data.backup_jobs : [data.backup_jobs];
+                    const fetchedData = Array.isArray(payload.backup_jobs) ? payload.backup_jobs : [payload.backup_jobs];
                     const restoreJobs = fetchedData.filter(job => job.restore_flag === true || job.restore_flag === 'true');
 
                     if (restoreJobs.length === 0) return; // Only process if there are restore jobs
@@ -399,18 +406,22 @@ const Restorepp = ({ searchQuery = '' }) => {
                             // RCA: Job not finished when restore_accuracy < 100 (cloud/UNC restore phase still ongoing)
                             const isRestorePhaseOngoing = restoreAccuracy != null && Number(restoreAccuracy) < 100;
                             const jobFinished = job.finished !== false && !isRestorePhaseOngoing && (job.finished === true || (job.progress_number != null && job.progress_number >= 100));
+                            // Folder-wide restore: keep progress monotonic (never decrease)
+                            const incomingProgress = Math.max(0, Math.min(100, job.progress_number ?? previousJob?.progress_number ?? 0));
+                            const previousProgress = previousJob?.progress_number ?? 0;
+                            const progressMonotonic = shouldFreezeJobProgress ? (previousJob?.progress_number ?? 0) : Math.max(previousProgress, incomingProgress);
                             const animatedJob = {
                                 ...previousJob,
                                 ...job,
                                 progress_number_original: job.progress_number,
 
-                                progress_number: shouldFreezeJobProgress
-                                    ? previousJob?.progress_number          // freeze job when server sends separate restore_accuracy
-                                    : Math.min(job.progress_number ?? previousJob?.progress_number ?? 0, 100),
+                                progress_number: Math.min(100, Math.max(0, progressMonotonic)),
 
                                 restore_accuracy: job.restore_accuracy !== undefined ? job.restore_accuracy : (existingJob?.restore_accuracy),
                                 restore_location: job.restore_location || existingJob?.restore_location,
-                                finished: job.status === "failed" ? false : jobFinished,
+                                finished: job.status === "failed" ? false
+                                    : (job.finished === true || job.status === "finished") ? true
+                                    : jobFinished,
                                 accuracy: job.accuracy ?? 0,
                             };
 

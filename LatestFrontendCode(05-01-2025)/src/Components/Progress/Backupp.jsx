@@ -493,11 +493,18 @@ const Backupp = ({ searchQuery = '' }) => {
 
             // FIXED: Updated backup_data handler to properly handle completion status
             socket.current.on("backup_data", (data) => {
-                if (!data || data.restore_flag === true) return;
-                if (!data.backup_jobs) return;
+                if (!data) return;
+                let payload;
+                try {
+                    payload = typeof data === "string" ? JSON.parse(data) : data;
+                } catch {
+                    return;
+                }
+                if (payload.restore_flag === true) return;
+                if (!payload.backup_jobs) return;
 
                 try {
-                    const fetchedData = Array.isArray(data.backup_jobs) ? data.backup_jobs : [data.backup_jobs];
+                    const fetchedData = Array.isArray(payload.backup_jobs) ? payload.backup_jobs : [payload.backup_jobs];
                     const validJobs = fetchedData.filter(job => job.restore_flag !== true);
                     if (validJobs.length === 0) return;
                     // const restoreFlag = data.restore_flag || false;
@@ -543,8 +550,16 @@ const Backupp = ({ searchQuery = '' }) => {
                             // Use progress_number when provided (incl. file-level updates) for incremental bar
                             const hasOverallProgress = job.progress_number !== undefined && !isNaN(parseFloat(job.progress_number));
 
+                            // Folder upload: progress_number_upload is folder-wide; keep monotonic (never decrease)
+                            const incomingCloudProgress = isCloudLevel
+                                ? Math.max(0, Math.min(100, job.progress_number_upload ?? 0))
+                                : 0;
+                            const previousCloud = previousJob?.cloud_progress ?? 0;
+                            const cloudProgressMonotonic = isCloudLevel
+                                ? Math.max(previousCloud, incomingCloudProgress)
+                                : previousCloud;
                             const cloudProgressForCompletion = isCloudLevel
-                                ? (job.progress_number_upload ?? 0)
+                                ? cloudProgressMonotonic
                                 : (previousJob?.cloud_progress ?? 100);
                             const isCloudUploadDone = !job.cloud || cloudProgressForCompletion >= 100;
                             const isJobCompleted =
@@ -570,7 +585,7 @@ const Backupp = ({ searchQuery = '' }) => {
                                     : previousJob?.cloud_filename,
 
                                 cloud_progress: isCloudLevel
-                                    ? Math.max(0, Math.min(100, job.progress_number_upload))
+                                    ? cloudProgressMonotonic
                                     : previousJob?.cloud_progress ?? 0,
 
                                 overall_progress: !isCloud
@@ -591,17 +606,18 @@ const Backupp = ({ searchQuery = '' }) => {
                                     : previousJob?.progress_number_file || 0,
 
                                 progress_number_upload: isCloudLevel
-                                    ? Math.max(0, Math.min(100, job.progress_number_upload || 0))
+                                    ? cloudProgressMonotonic
                                     : previousJob?.progress_number_upload || 0,
 
 
 
                                 // When server/client reports failed, do not show as completed (avoids 100% + green)
-                            // RCA: When cloud upload in progress (cloud_progress < 100), job is NOT finished even if staging progress_number=100
+                            // If server explicitly says finished/status finished, always show completed (fixes bar stuck at 96%)
                                 finished: job.status === "failed" ? false
+                                    : (job.finished === true || job.status === "finished") ? true
                                     : (isCloudLevel && (job.progress_number_upload ?? 0) < 100) ? false
                                     : (isCloud && (previousJob?.cloud_progress ?? 0) < 100) ? false
-                                    : (job.finished === true || (job.progress_number != null && job.progress_number >= 100)),
+                                    : (job.progress_number != null && job.progress_number >= 100),
                                 accuracy: job.accuracy ?? 0,
                                 Jname: job.name
                             };
