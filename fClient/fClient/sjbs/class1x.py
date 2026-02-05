@@ -1286,7 +1286,6 @@ def create_localbkp_job_original(
         p_name=j.name
         while not j.next_run_time:
             try:
-                if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                 if not cl_socketio_obj.connected:
                     cl_socketio_obj.connect(
                         f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -1354,7 +1353,6 @@ def create_localbkp_job_original(
             if j:
                 while not j.next_run_time:
                     try:
-                        if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                         if not cl_socketio_obj.connected:
                             cl_socketio_obj.connect(
                                 f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -1849,7 +1847,6 @@ def create_localbkp_job_original(
                 if j:
                     while not j.next_run_time:
                         try:
-                            if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                             if not cl_socketio_obj.connected:
                                 cl_socketio_obj.connect(
                                     f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -2366,7 +2363,6 @@ def start_file_streaming(
 
     url = f"http://{app.config['server_ip']}:{app.config['server_port']}/upload"
     try:
-        if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
         if not cl_socketio_obj.connected:
             try:
                 cl_socketio_obj.connect(f"http://{app.config['server_ip']}:{app.config['server_port']}"
@@ -2459,7 +2455,6 @@ def start_file_streaming(
         if j != None:
             while not j.next_run_time:
                 try:
-                    if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                     if not cl_socketio_obj.connected:
                         cl_socketio_obj.connect(
                             f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -2526,7 +2521,6 @@ def start_file_streaming(
             if j != None:
                 while not j.next_run_time:
                     try:
-                        if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                         if not cl_socketio_obj.connected:
                             cl_socketio_obj.connect(
                                 f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -2957,7 +2951,6 @@ def start_file_streaming(
                                 if repo in ["GDRIVE", "GOOGLEDRIVE","ONEDRIVE"]:
                                     if seq_num == 1:
                                         try:
-                                            if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                                             if not cl_socketio_obj.connected:
                                                 cl_socketio_obj.connect(
                                                     f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -3007,7 +3000,6 @@ def start_file_streaming(
                                         s3_key = f"{folder_path}/{backup_path_onedrive.replace(os.sep,'/')}" if folder_path else backup_path_onedrive
                                         fid=onec.upload_file(local_path= files,remote_path=s3_key)
                                     try:
-                                        if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                                         if not cl_socketio_obj.connected:
                                             cl_socketio_obj.connect(
                                                 f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -3333,7 +3325,6 @@ def start_file_streaming_v2(
     
     url = f"http://{app.config['server_ip']}:{app.config['server_port']}/upload"
     try:
-        if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
         if not cl_socketio_obj.connected:
             try:
                 cl_socketio_obj.connect(f"http://{app.config['server_ip']}:{app.config['server_port']}"
@@ -3403,7 +3394,6 @@ def start_file_streaming_v2(
         if j != None:
             while not j.next_run_time:
                 try:
-                    if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                     if not cl_socketio_obj.connected:
                         cl_socketio_obj.connect(
                             f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -3647,7 +3637,6 @@ def start_file_streaming_v2(
             if j != None:
                 while not j.next_run_time:
                     try:
-                        if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                         if not cl_socketio_obj.connected:
                             cl_socketio_obj.connect(
                                 f"ws://{app.config['server_ip']}:{app.config['server_port']}"

@@ -88,7 +88,6 @@ def broadcast_ws_message(cl, task_queue,kill=False,msg_type_param="starting"):
             
             try:
                             
-                if cl.connected: cl.disconnect()
                 time.sleep(0.3)
                 if not cl.connected:
                     cl.connect(
@@ -268,7 +267,6 @@ def create_uncbkp_job(
         try:
             
             try:
-                if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                 if not cl_socketio_obj.connected:
                     cl_socketio_obj.connect(
                         f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -510,7 +508,6 @@ def create_uncbkp_job(
                         try:
                             if ixs % ixs == 0:                       
                             
-                                if cl.connected: cl.disconnect()
                                 if not cl.connected:
                                     cl.connect(
                                         f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -736,7 +733,6 @@ def create_uncbkp_job_oldSMB(
         try:
             
             try:
-                if cl_socketio_obj.connected: cl_socketio_obj.disconnect()
                 if not cl_socketio_obj.connected:
                     cl_socketio_obj.connect(
                         f"ws://{app.config['server_ip']}:{app.config['server_port']}"
@@ -984,7 +980,6 @@ def create_uncbkp_job_oldSMB(
                         try:
                             if ixs % ixs == 0:                       
                             
-                                if cl.connected: cl.disconnect()
                                 if not cl.connected:
                                     cl.connect(
                                         f"ws://{app.config['server_ip']}:{app.config['server_port']}"

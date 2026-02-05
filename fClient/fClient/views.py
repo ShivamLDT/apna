@@ -500,8 +500,54 @@ def restoretest():
             # GDrive/cloud non-meta: build file_metada from chunk_manifest so chunk-download loop runs (no server metadata fetch)
             if not isMetaFile and chunk_manifest and (str(rep).upper() in ["GDRIVE", "GOOGLEDRIVE", "AWSS3", "AZURE", "ONEDRIVE"]):
                 expected_total = int(chunk_manifest.get("total_chunks") or 0)
+                # GDrive: abort if manifest total_chunks disagrees with gidn_list length (prevents partial restore when server sent wrong manifest from disk/temp)
+                if str(rep).upper() in ["GDRIVE", "GOOGLEDRIVE"]:
+                    gidn_list = (jsrepd or {}).get("gidn_list") or []
+                    if isinstance(gidn_list, list) and len(gidn_list) > 0 and len(gidn_list) != expected_total:
+                        log_event(
+                            logger, logging.ERROR, job_id, "restore", file_path=tccn, file_id=obj,
+                            error_code="GDRIVE_GIDN_LIST_LENGTH", error_message=f"gidn_list length {len(gidn_list)} != manifest total_chunks {expected_total}; abort to avoid partial/corrupt restore",
+                            extra={"event": "restore_aborted", "expected": expected_total, "actual": len(gidn_list)},
+                        )
+                        return make_response(jsonify({"restore": "failed", "reason": "GDRIVE_GIDN_LIST_LENGTH"}), 500)
                 chunks_keys = chunk_manifest.get("chunks") or {}
                 file_metada = sorted(chunks_keys.keys(), key=lambda x: int(x)) if chunks_keys else (list(range(1, expected_total + 1)) if expected_total else [])
+                state_path = f"{tccn}.restore.state.json"
+                completed_chunks = set()
+                if os.path.exists(state_path):
+                    try:
+                        with open(state_path, "r", encoding="utf-8") as state_file:
+                            state_data = json.load(state_file)
+                            completed_chunks = set(state_data.get("completed_chunks", []))
+                    except Exception:
+                        completed_chunks = set()
+            # LAN/LOCAL: build file_metada from chunk_manifest (avoid metadata chunk count mismatch from server metadata)
+            elif chunk_manifest and (str(rep).upper() in ["LAN", "LOCAL", "LOCAL STORAGE"]):
+                expected_total = int(chunk_manifest.get("total_chunks") or 0)
+                chunks_keys = chunk_manifest.get("chunks") or {}
+                chunk_indices = sorted(chunks_keys.keys(), key=lambda x: int(x)) if chunks_keys else list(range(1, expected_total + 1)) if expected_total else []
+                # Build full chunk paths for server resolution (UPLOAD_FOLDER + relative_path)
+                # Use backup job id (j_sta) from backup record - chunk files are named with that id, not restore session (tccnstamp)
+                from_path = (jsrepd or {}).get("from_path", "") or ""
+                file_base = os.path.basename(tccn) if tccn else ""
+                _bj = (jsrepd or {}).get("j_sta")
+                job_id = str(_bj) if _bj is not None else (str(tccnstamp) if tccnstamp else "")
+                if from_path and file_base and job_id and chunk_indices:
+                    file_metada = []
+                    for idx in chunk_indices:
+                        chunk_rel = os.path.join(from_path.replace("/", os.sep), f"{file_base}_{idx}.gz_{job_id}")
+                        file_metada.append(chunk_rel)
+                else:
+                    file_metada = chunk_indices
+                state_path = f"{tccn}.restore.state.json"
+                completed_chunks = set()
+                if os.path.exists(state_path):
+                    try:
+                        with open(state_path, "r", encoding="utf-8") as state_file:
+                            state_data = json.load(state_file)
+                            completed_chunks = set(state_data.get("completed_chunks", []))
+                    except Exception:
+                        completed_chunks = set()
                 # GDrive: require gidn_list in jsrepd with length matching total_chunks
                 if str(rep).upper() in ["GDRIVE", "GOOGLEDRIVE"]:
                     gidn_list = jsrepd.get("gidn_list")
@@ -520,7 +566,8 @@ def restoretest():
                             completed_chunks = set(state_data.get("completed_chunks", []))
                     except Exception:
                         completed_chunks = set()
-            if isMetaFile:
+            if isMetaFile and (str(rep).upper() not in ["LAN", "LOCAL", "LOCAL STORAGE"]):
+                # LAN: use file_metada built from chunk_manifest above; skip server metadata fetch
                 with requests.post(
                     f"http://{app.config['server_ip']}:{app.config['server_port']}/data/download",
                     headers={"id": id, "obj": obj, "pid": pid},
@@ -657,8 +704,9 @@ def restoretest():
                                     extracted_data = gz_file.read()
                             except Exception as e:
                                 logger.warning(f"Error {str(e)}")
-                        ichunkscount+=1
-                        ichunks_percent = float(100*float(ichunkscount))/float(len(file_metada))
+                        # Use 1-based chunk index for current iteration (do not increment yet)
+                        current_chunk_1based = ichunkscount + 1
+                        ichunks_percent = float(100*float(current_chunk_1based))/float(len(file_metada))
                         backup_status = {
                             "restore_flag":True,
                             "backup_jobs": [
@@ -701,13 +749,15 @@ def restoretest():
                             print("Bytes data found ")   
                         else:
                             print("BytesIO data found ")
-                        if str(ichunkscount + 1) in completed_chunks:
+                        if str(current_chunk_1based) in completed_chunks:
                             continue
                         with open(tempfilecreate, "ab") as ftarget:
                             #for df in extracted_data:
                             if extracted_data:
                                 decompressed_data= pZip.decompress(encrypted_data=extracted_data,file_name=tccn)
-                                expected_hash = str(chunk_manifest.get("chunks", {}).get(str(ichunkscount + 1), ""))
+                                if decompressed_data is None:
+                                    raise RuntimeError("Decompress returned None; chunk may be wrong format or corrupted")
+                                expected_hash = str(chunk_manifest.get("chunks", {}).get(str(current_chunk_1based), ""))
                                 actual_hash = hashlib.sha256(decompressed_data).hexdigest()
                                 if expected_hash and expected_hash != actual_hash:
                                     log_event(
@@ -717,7 +767,7 @@ def restoretest():
                                         "restore",
                                         file_path=tccn,
                                         file_id=obj,
-                                        chunk_index=ichunkscount + 1,
+                                        chunk_index=current_chunk_1based,
                                         error_code="CHECKSUM_MISMATCH",
                                         error_message="Chunk checksum mismatch",
                                         extra={"event": "chunk_failed"},
@@ -729,7 +779,7 @@ def restoretest():
                                         "restore",
                                         file_path=tccn,
                                         file_id=obj,
-                                        chunk_index=ichunkscount + 1,
+                                        chunk_index=current_chunk_1based,
                                         error_code="RESTORE_ABORTED",
                                         error_message="Restore aborted due to chunk checksum mismatch",
                                         extra={"event": "restore_aborted"},
@@ -739,7 +789,7 @@ def restoretest():
                                 ftarget.flush()
                                 #restored_data +=decompressed_data
                                 gc.collect()
-                                completed_chunks.add(str(ichunkscount + 1))
+                                completed_chunks.add(str(current_chunk_1based))
                                 try:
                                     with open(state_path, "w", encoding="utf-8") as state_file:
                                         json.dump({"completed_chunks": sorted(completed_chunks)}, state_file)
@@ -752,9 +802,10 @@ def restoretest():
                             "restore",
                             file_path=tccn,
                             file_id=obj,
-                            chunk_index=ichunkscount + 1,
+                            chunk_index=current_chunk_1based,
                             extra={"event": "chunk_download_end"},
                         )
+                        ichunkscount += 1
                 except Exception as restore_error:
                     log_event(
                         logger,
@@ -770,6 +821,23 @@ def restoretest():
                     )
                     if tempfilecreate and os.path.exists(tempfilecreate):
                         os.remove(tempfilecreate)
+                    try:
+                        del extracted_data
+                    except NameError:
+                        pass
+                    try:
+                        del pZip
+                    except NameError:
+                        pass
+                    gc.collect()
+                    send_response = make_response(
+                        jsonify({"restore": "failed", "reason": str(restore_error)}),
+                        500,
+                    )
+                    if res_h1:
+                        for key, value in res_h1.items():
+                            send_response.headers[key] = value
+                    return send_response
 
                 del extracted_data
                 del pZip
@@ -836,6 +904,11 @@ def restoretest():
                         
                 gc.collect()
                 expected_file_hash = str(chunk_manifest.get("file_hash", ""))
+                if expected_file_hash and not os.path.isfile(tccn):
+                    return make_response(
+                        jsonify({"restore": "failed", "reason": "Restored file missing before verification"}),
+                        500,
+                    )
                 if expected_file_hash:
                     open_err = None
                     file_hasher = None
@@ -928,29 +1001,27 @@ def restoretest():
                         )
                         return make_response(jsonify({"file": tccn, "restore": "failed", "reason": "FILE_CHECKSUM_MISMATCH"}), 500)
                 else:
+                    # Cloud restore may omit file_hash when backup record has none (e.g. older backups). Skip verification and succeed.
                     log_event(
                         logger,
-                        logging.ERROR,
+                        logging.INFO,
                         job_id,
                         "restore",
                         file_path=tccn,
                         file_id=obj,
-                        error_code="FILE_CHECKSUM_MISMATCH",
-                        error_message="Missing expected file hash",
-                        extra={"event": "restore_aborted"},
+                        error_code="",
+                        error_message="",
+                        extra={"event": "restore_verify_skipped", "reason": "no expected file hash"},
                     )
-                    log_event(
-                        logger,
-                        logging.ERROR,
-                        job_id,
-                        "restore",
-                        file_path=tccn,
-                        file_id=obj,
-                        error_code="RESTORE_ABORTED",
-                        error_message="Restore aborted due to missing file hash",
-                        extra={"event": "restore_aborted"},
+                    return make_response(
+                        jsonify({
+                            "file": tccn,
+                            "restore": "success",
+                            "reason": "",
+                            "verification_skipped": True,
+                        }),
+                        200,
                     )
-                    return make_response(jsonify({"file": tccn, "restore": "failed", "reason": "FILE_CHECKSUM_MISMATCH"}), 500)
 
                 try:
                     state_path = f"{tccn}.restore.state.json"
@@ -1444,29 +1515,31 @@ def restoretest():
                     )
                     return make_response(jsonify({"file": tccn, "restore": "failed", "reason": "FILE_CHECKSUM_MISMATCH"}), 500)
             else:
+                # Cloud restore may omit file_hash when backup record has none (e.g. older backups). Skip verification and succeed.
                 log_event(
                     logger,
-                    logging.ERROR,
+                    logging.INFO,
                     job_id,
                     "restore",
                     file_path=tccn,
                     file_id=obj,
-                    error_code="FILE_CHECKSUM_MISMATCH",
-                    error_message="Missing expected file hash",
-                    extra={"event": "restore_aborted"},
+                    error_code="",
+                    error_message="",
+                    extra={"event": "restore_verify_skipped", "reason": "no expected file hash"},
                 )
-                log_event(
-                    logger,
-                    logging.ERROR,
-                    job_id,
-                    "restore",
-                    file_path=tccn,
-                    file_id=obj,
-                    error_code="RESTORE_ABORTED",
-                    error_message="Restore aborted due to missing file hash",
-                    extra={"event": "restore_aborted"},
+                send_response = make_response(
+                    jsonify({
+                        "file": tccn,
+                        "restore": "success",
+                        "reason": "",
+                        "verification_skipped": True,
+                    }),
+                    200,
                 )
-                return make_response(jsonify({"file": tccn, "restore": "failed", "reason": "FILE_CHECKSUM_MISMATCH"}), 500)
+                if res_h1:
+                    for key, value in res_h1.items():
+                        send_response.headers[key] = value
+                return send_response
 
             try:
                 state_path = f"{tccn}.restore.state.json"

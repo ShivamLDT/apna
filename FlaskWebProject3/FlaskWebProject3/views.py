@@ -21,6 +21,7 @@ from operator import itemgetter
 import os
 import os.path
 from pathlib import Path
+import shutil
 import signal
 import mimetypes
 import hashlib
@@ -1068,7 +1069,15 @@ CLIENTNODES_FILE = "clientnodes.json"
 
 
 def _get_clientnodes_path():
-    """Use site_config_dir so the file is found regardless of process cwd."""
+    """Prefer project clientnodes.json so UI and repo file stay in sync; else use site_config_dir."""
+    try:
+        # Prefer clientnodes.json in project root (same dir as runserver / parent of app package)
+        project_root = os.path.dirname(app.root_path)
+        project_file = os.path.join(project_root, CLIENTNODES_FILE)
+        if os.path.isfile(project_file):
+            return project_file
+    except Exception:
+        pass
     try:
         af = app.config.get("AppFolders")
         if af and getattr(af, "site_config_dir", None):
@@ -3558,11 +3567,37 @@ def data_download_file():
                 print(str(es))
             return fh
 
-        filename = os.path.join(app.config["UPLOAD_FOLDER"],filename)
+        # LAN: filename (source) is chunk index or full chunk path. Chunks may be in temp when not in UPLOAD_FOLDER.
+        # Server stores chunk files with trailing .gz (e.g. file_1.gz_jsta.gz); client sends path without it.
+        chunk_idx = filename
+        file_name_chunk = os.path.basename(pro.get("tccn", "").replace("\\", os.sep).replace("/", os.sep)) if pro.get("tccn") else ""
+        chunk_path = os.path.join(app.config["UPLOAD_FOLDER"], chunk_idx)
+        if not os.path.isfile(chunk_path):
+            chunk_path_gz = chunk_path + ".gz"
+            if os.path.isfile(chunk_path_gz):
+                chunk_path = chunk_path_gz
+        if not os.path.isfile(chunk_path) and file_name_chunk:
+            temp_base = os.path.join(app.config["UPLOAD_FOLDER"], "temp", "received_chunks")
+            chunk_idx_dir_norm = os.path.normpath(os.path.dirname(chunk_idx)) if os.path.dirname(chunk_idx) else ""
+            chunk_basename = os.path.basename(chunk_idx)
+            chunk_basename_gz = chunk_basename + ".gz"
+            if os.path.isdir(temp_base):
+                for root, _, files in os.walk(temp_base):
+                    if chunk_idx_dir_norm:
+                        root_norm = os.path.normpath(root.replace("/", os.sep))
+                        if not (root_norm.endswith(chunk_idx_dir_norm) or root_norm == os.path.normpath(os.path.join(temp_base, chunk_idx_dir_norm))):
+                            continue
+                    for f in files:
+                        if f == chunk_basename_gz or f == chunk_basename or f == f"{file_name_chunk}_{chunk_idx}.gz":
+                            chunk_path = os.path.join(root, f)
+                            break
+                    if os.path.isfile(chunk_path):
+                        break
+        filename = chunk_path
         return_send_file = send_file(
-            filename, as_attachment=True, download_name=filename
+            filename, as_attachment=True, download_name=os.path.basename(filename)
         )
-        return_send_file.headers.add("filename",filename)
+        return_send_file.headers.add("filename", filename)
         return_send_file.headers.add("folder","file")
         log_chunk_event(
             logger,
@@ -3571,7 +3606,7 @@ def data_download_file():
             "restore",
             file_path=pro.get("tccn"),
             file_id=pro.get("name"),
-            chunk_index=filename,
+            chunk_index=chunk_idx,
             extra={"event": "chunk_download_end", "repo": rep},
         )
         return return_send_file
@@ -5172,6 +5207,7 @@ def upload_file():
                         tccsrc=tccsrc,bNoBackup=bNoBackup,fidi=fidi,tfi=tfi,bGD_backup=bGDBackup,bOneDrive_backup=bOneDrive_backup,bAWS_backup=bAWS_backup,bAZURE_backup=bAZURE_backup, stat=stat, file_id=file_id,
                         gfidi_from_headers=request.headers.get("gfidi") if bGDBackup else None,
                         chunk_index=seq_num,
+                        file_hash=file_hash,
                     )
                     log_event(
                         logger,
@@ -5379,9 +5415,14 @@ def _manifest_folder(tcc_value):
 
 
 def _final_manifest_path(tcc, file_name, j_sta):
+    folder = _manifest_folder(tcc)
+    # If folder is absolute (e.g. Windows C:\...), os.path.join would drop UPLOAD_FOLDER.
+    # Normalize to a relative subfolder so manifest is always under UPLOAD_FOLDER.
+    if folder and os.path.isabs(folder):
+        folder = hashlib.sha256(folder.encode("utf-8")).hexdigest()
     return os.path.join(
         app.config["UPLOAD_FOLDER"],
-        _manifest_folder(tcc),
+        folder,
         f"{file_name}_{str(j_sta)}.manifest.json",
     )
 
@@ -5546,8 +5587,9 @@ def save_all(file_name, total_chunks, tcc, abort,
         temp_dir = os.path.join(add_unc_temppath(), tcc)
         if tfi:
             temp_dir = os.path.join(add_unc_temppath(), tcc,tfi)
-        chunk_files = [f for f in os.listdir(temp_dir) if f.startswith(file_name + "_")]
-        return len(chunk_files) == total_chunks
+        # Exclude .manifest.json - chunks are .gz only; manifest shares file_name_ prefix
+        chunk_files = [f for f in os.listdir(temp_dir) if f.startswith(file_name + "_") and f.endswith(".gz")]
+        return len(chunk_files) == int(total_chunks)
     except Exception as deee:
         print(str(deee))
         raise
@@ -5674,6 +5716,7 @@ def save_final(
     backup_logs_id=0.0, file_id = None,
     gfidi_from_headers=None,
     chunk_index=None,
+    file_hash=None,
 ):
     import gzip
     import os
@@ -5718,6 +5761,8 @@ def save_final(
                     givn=givn, gidn=gidn, backup_logs_id=backup_logs_id, bdone=True,
                     tccsrc=tccsrc, fidi=fidi, size_data=size_val, file_id=file_id,
                     chunk_index=chunk_index,
+                    xsum_done=int(total_chunks) or 1,
+                    file_hash=file_hash,
                 )
                 return True, None
             except Exception as e:
@@ -5732,7 +5777,8 @@ def save_final(
         temp_dir = os.path.join(add_unc_temppath(), tcc)
         if tfi:
             temp_dir = os.path.join(add_unc_temppath(), tcc,tfi)
-        chunk_files = [f for f in os.listdir(temp_dir) if f.startswith(file_name + "_")]
+        # Exclude .manifest.json - chunks are .gz only; manifest shares file_name_ prefix
+        chunk_files = [f for f in os.listdir(temp_dir) if f.startswith(file_name + "_") and f.endswith(".gz")]
         manifest = _load_manifest(temp_dir, file_name, tfi)
         manifest_total = int(manifest.get("total_chunks") or 0)
         manifest_chunks = manifest.get("chunks") or {}
@@ -6918,7 +6964,7 @@ def save_final(
                             #     file_name, total_chunks, tcc, abort, epc,tccsrc=tccsrc,tfi=tfi
                             # )
                             xsum_done=xsum_chunks
-                            xdone_all = (xsum_done*100)/total_chunks
+                            xdone_all = (xsum_done*100)/total_chunks if total_chunks else (100 if xsum_chunks else 0)
                             if file_id:
                                 backup_logs_id=file_id
 
@@ -7037,6 +7083,38 @@ def save_final(
             if os.path.exists(manifest_path):
                 os.makedirs(os.path.dirname(final_manifest_path), exist_ok=True)
                 shutil.move(manifest_path, final_manifest_path)
+                # Also copy manifest to main folder (UPLOAD_FOLDER/from_path/) so restore finds it first; temp remains fallback.
+                for path_value in (tcc, tccsrc):
+                    if not path_value:
+                        continue
+                    path_str = str(path_value).strip()
+                    if path_str.startswith("{") and path_str.endswith("}"):
+                        try:
+                            js = json.loads(path_str)
+                            scom = js.get("scom") or js.get("getCode")
+                            orig = js.get("original_path") or js.get("file_path") or ""
+                            if scom and orig:
+                                path_value = os.path.join(scom, os.path.dirname(orig).replace(":", "{{DRIVE}}"))
+                        except Exception:
+                            continue
+                        path_str = str(path_value).strip()
+                    if path_str.startswith("{") and path_str.endswith("}"):
+                        continue
+                    main_dir = os.path.join(app.config["UPLOAD_FOLDER"], path_value)
+                    # main_dir is often absolute on Windows (e.g. D:\ApnaBackup\...); allow copy when under UPLOAD_FOLDER
+                    upload_norm = os.path.normpath(os.path.abspath(app.config["UPLOAD_FOLDER"]))
+                    main_norm = os.path.normpath(os.path.abspath(main_dir))
+                    under_upload = main_norm == upload_norm or main_norm.startswith(upload_norm + os.sep)
+                    if under_upload and os.path.exists(final_manifest_path):
+                        try:
+                            os.makedirs(main_dir, exist_ok=True)
+                            main_manifest = os.path.join(main_dir, f"{file_name}_{str(j_sta)}.manifest.json")
+                            if main_manifest != final_manifest_path:
+                                shutil.copy2(final_manifest_path, main_manifest)
+                                log_event(logger, logging.INFO, ensure_job_id(j_sta), "backup", file_path=file_name, extra={"event": "manifest_copied_to_main_folder", "manifest_path": main_manifest})
+                        except Exception:
+                            pass
+                    break
         except Exception as manifest_error:
             log_event(
                 logger,
@@ -7949,11 +8027,14 @@ def save_savelogdata(
     bdone=True,
     tccsrc="",fidi="",xsum_done=0,isMetaFile=False,size_data=0, file_id=None,
     chunk_index=None,
+    file_hash=None,
 ):
 
     import gzip
     import os
     import tempfile
+    if not mimet and file_name:
+        mimet = "file"
     output_file_pathgd = os.path.join(tcc, f"{file_name}_{str(j_sta)}.gz")
     # with client_backups_data_lock:
     data = load_backup_data(CLIENT_BACKUPS_DATA_FILE)
@@ -8051,6 +8132,7 @@ def save_savelogdata(
                     _gidn_list = [gidn]
                 elif gidn is not None:
                     _gidn_list = [gidn]
+                _preserve_file_hash = None
                 # GDrive multi-chunk: merge this chunk's gidn into gidn_list by chunk_index (1-based) so we don't overwrite previous chunks
                 if rep_upper in ["GDRIVE", "GOOGLEDRIVE"] and gidn is not None and not isinstance(gidn, list) and int(total_chunks or 0) > 1 and chunk_index is not None:
                     idx = int(chunk_index) - 1  # 1-based to 0-based
@@ -8065,6 +8147,7 @@ def save_savelogdata(
                                 existing_repod = (row[0] or "") if row else ""
                                 if existing_repod:
                                     existing = json.loads(existing_repod) if isinstance(existing_repod, str) else existing_repod
+                                    _preserve_file_hash = existing.get("file_hash")
                                     existing_list = existing.get("gidn_list")
                                     if isinstance(existing_list, list) and len(existing_list) <= int(total_chunks):
                                         _gidn_list = existing_list
@@ -8093,6 +8176,10 @@ def save_savelogdata(
                     "total_chunks": int(total_chunks),
                     "isMetaFile": isMetaFile,
                 }
+                if file_hash:
+                    _data_repod_obj["file_hash"] = str(file_hash)
+                elif _preserve_file_hash:
+                    _data_repod_obj["file_hash"] = str(_preserve_file_hash)
                 data_repod_val = json.dumps(_data_repod_obj).replace("'", "''")
             elif rep_upper in ["AWSS3", "AZURE", "ONEDRIVE"]:
                 # AWS/Azure/OneDrive: no local manifest; store object path/key so restore can fetch from cloud via server
@@ -8166,7 +8253,7 @@ def save_savelogdata(
             # xsum_done, xdone_all = get_save_stats(
             #     file_name, total_chunks, tcc, abort, epc,tccsrc
             # )
-            xdone_all =xsum_done*100/total_chunks
+            xdone_all = (xsum_done * 100) / total_chunks if total_chunks else (100 if xsum_done else 0)
 
             # record2 = BackupLogs(
             #     id=backup_logs_id,
@@ -8193,6 +8280,7 @@ def save_savelogdata(
             # xession.merge(record2)
             # xession.commit()]
             log_escaped = json.dumps(new_item).replace("'", "''")
+            _mimet = (mimet or ("file" if file_name else "folder")).replace("'", "''")
             sql_logs = (
                 "INSERT OR REPLACE INTO backups ("
                 "id, name, date_time, from_computer, from_path, data_repo, "
@@ -8200,7 +8288,7 @@ def save_savelogdata(
                 "pIdText, bkupType, sum_all, sum_done, done_all, mode, status"
                 ") VALUES ("
                 f"{backup_logs_id}, {float(j_sta)}, {int(time())}, '{epn}', '{tccsrc}', '{rep}', "
-                f"'', '{file_name}', '{os.path.join(tcc, file_name)}', "
+                f"'{_mimet}', '{file_name}', '{os.path.join(tcc, file_name)}', "
                 f"{size_val}, '{log_escaped}', "
                 f"'{pNameText}', '{pIdText}', '{bkupType}', "
                 f"{int(xsum_all)}, {int(xsum_done)}, '{xdone_all}', '{mode_t}', '{status_t}'"
@@ -9136,6 +9224,7 @@ def get_restore_data():
             import base64
 
             # file_paths = [row for row in cursor.fetchall()]
+            import copy
             rr = []
             # rr_ = []
             # rr_ = []
@@ -9193,6 +9282,51 @@ def get_restore_data():
                         pass
                 if not rec_dict.get("log"):
                     rec_dict["log"] = "{}"
+                # GDrive multi-chunk: Backups row may have log with only last chunk (gidn_list len 1). Enrich from backups_m which has full gidn_list and total_chunks.
+                if str(selectedStorageType).upper().replace(" ", "") in ["GDRIVE", "GOOGLEDRIVE"]:
+                    _log_js = {}
+                    try:
+                        _log_js = json.loads(rec_dict.get("log") or "{}")
+                        if isinstance(_log_js, str):
+                            _log_js = json.loads(_log_js)
+                    except Exception:
+                        pass
+                    _tc_log = int(_log_js.get("total_chunks", 1)) or 1
+                    _gidn_log = _log_js.get("gidn_list") or []
+                    _tc_row = int(rec_dict.get("chunks", rec_dict.get("sum_all", 1)) or 1)
+                    _need_enrich = _tc_log < 2 or (isinstance(_gidn_log, list) and len(_gidn_log) < 2)
+                    if _need_enrich:
+                        _rfn = (rec_dict.get("file_name") or "").strip()
+                        _rfp = (rec_dict.get("from_path") or "").strip()
+                        if not _rfn and rec_dict.get("full_file_name"):
+                            _rfn = (os.path.basename(str(rec_dict.get("full_file_name", "")).replace("\\", os.sep).replace("/", os.sep)) or "").strip()
+                        _bms = list(qresults[1] or [])
+                        if not _bms and _rfn and dbname:
+                            try:
+                                _run_id = rec_dict.get("name") or rec_dict.get("id")
+                                if _run_id is not None:
+                                    _q = ("SELECT * FROM backups_M WHERE id = " + str(float(_run_id)) + " AND data_repo IN ('GDRIVE','GOOGLEDRIVE') ")
+                                    _r = s_manager.execute_queries([(dbname, [_q])])
+                                    if dbname in _r and _r[dbname] and _r[dbname][0][0] == "Success" and _r[dbname][0][1]:
+                                        _bms = _r[dbname][0][1]
+                            except Exception:
+                                pass
+                        for _bm in _bms:
+                            _bmd = dict(_bm) if not isinstance(_bm, dict) else _bm
+                            _bfn = (_bmd.get("file_name") or "").strip()
+                            _bfp = (_bmd.get("from_path") or "").strip()
+                            _path_ok = (not _rfp or not _bfp or _bfp == _rfp or _rfp in _bfp or _bfp in _rfp)
+                            _name_ok = _rfn and (_bfn == _rfn or (_rfn in _bfn or _bfn in _rfn) or (os.path.basename((_bfp + os.sep + _bfn).replace("\\", os.sep)) == _rfn))
+                            if _name_ok and _path_ok:
+                                _dr = _bmd.get("data_repod")
+                                if _dr:
+                                    try:
+                                        _j = json.loads(_dr) if isinstance(_dr, str) else _dr
+                                        if isinstance(_j, dict) and isinstance(_j.get("gidn_list"), list) and len(_j["gidn_list"]) > 1 and int(_j.get("total_chunks", 0)) > 1:
+                                            rec_dict["log"] = _dr if isinstance(_dr, str) else json.dumps(_j)
+                                            break
+                                    except Exception:
+                                        pass
                 rec_dict.setdefault("fpath", RestoreLocation)
                 rec_dict.setdefault("name", rec_dict.get("id"))
                 backup_id = str(rec_dict.get("id", ""))
@@ -9274,8 +9408,16 @@ def get_restore_data():
                 file_name_for_manifest = rec_dict.get("file_name") or os.path.basename(
                     rec_dict.get("full_file_name", "")
                 )
-                tcc_value = _tcc_value
-                manifest_path = _final_manifest_path(tcc_value, file_name_for_manifest, backup_id)
+                # Use from_path for manifest path (main folder). Backup copies manifest there; if missing, we fall back to temp.
+                # Backup stores manifest as file_name_BACKUP_JOB_ID.manifest.json (job id from backup run, not restore session).
+                # Use backup job id (jsrepd["j_sta"] or selectedId) so we find desktop.ini_1770248161.263644.manifest, not desktop.ini_1770248896.0041122.manifest.
+                tcc_value = rec_dict.get("from_path") or _tcc_value
+                try:
+                    _bj = jsrepd.get("j_sta")
+                    backup_job_id = float(_bj) if _bj is not None else (float(selectedId) if selectedId else float(j_sta))
+                except (TypeError, ValueError):
+                    backup_job_id = float(selectedId) if selectedId else float(j_sta)
+                manifest_path = _final_manifest_path(tcc_value, file_name_for_manifest, backup_job_id)
                 # GDrive/AWS/Azure/OneDrive: no local manifest; use data_repod (already in rec_dict["log"]) for restore
                 rep_upper = str(selectedStorageType).upper().replace(" ", "")
                 is_gdrive_restore = rep_upper in ["GDRIVE", "GOOGLEDRIVE"] and (
@@ -9295,7 +9437,8 @@ def get_restore_data():
                         "chunks": {str(i): "" for i in range(1, total_chunks_g + 1)},
                     }
                     found_manifest_path = None
-                    
+                    # #region agent log
+                    # #endregion
                     # UNC-specific: Build manifest from stored chunk metadata
                     # UNC backup stores chunks array with path, hash, size in jsrepd
                     if is_unc_restore and jsrepd.get("chunks"):
@@ -9330,13 +9473,23 @@ def get_restore_data():
                         if os.path.exists(manifest_path):
                             with open(manifest_path, "r", encoding="utf-8") as manifest_file:
                                 disk_manifest = json.load(manifest_file)
-                            if disk_manifest.get("total_chunks"):
+                            # For GDrive/cloud: never trust disk manifest total_chunks - canonical source is jsrepd. Disk manifest may be stale/partial and cause partial restore (e.g. manifest_total_chunks=1 for a 2-chunk file).
+                            if disk_manifest.get("total_chunks") and not (is_gdrive_restore or is_aws_azure_onedrive_restore):
                                 manifest_data["total_chunks"] = disk_manifest.get("total_chunks")
+                            if disk_manifest.get("total_chunks") and (is_gdrive_restore or is_aws_azure_onedrive_restore):
+                                manifest_data["chunks"] = {str(i): "" for i in range(1, int(manifest_data.get("total_chunks") or 0) + 1)}
                             # GDrive/AWS/Azure/OneDrive: do not use disk manifest chunk hashes - chunks live in cloud and disk manifest may be from a different backup, causing CHECKSUM_MISMATCH on restore
                             if not (is_gdrive_restore or is_aws_azure_onedrive_restore) and disk_manifest.get("chunks"):
                                 manifest_data["chunks"] = disk_manifest.get("chunks")
-                            if disk_manifest.get("file_hash"):
-                                manifest_data["file_hash"] = disk_manifest.get("file_hash")
+                            # For cloud restore, use only file_hash from backup record (jsrepd) so expected hash matches the content we restore. Do not use disk manifest file_hash - it may be from a different backup and cause FILE_CHECKSUM_MISMATCH.
+                            if is_gdrive_restore or is_aws_azure_onedrive_restore:
+                                for _fk in ["file_hash", "filehash", "hash", "sha256", "sha256Checksum"]:
+                                    if jsrepd.get(_fk):
+                                        manifest_data["file_hash"] = str(jsrepd.get(_fk))
+                                        break
+                            else:
+                                if disk_manifest.get("file_hash"):
+                                    manifest_data["file_hash"] = disk_manifest.get("file_hash")
                             found_manifest_path = manifest_path
                     except Exception:
                         pass
@@ -9377,12 +9530,15 @@ def get_restore_data():
                             if best_manifest:
                                 with open(best_manifest, "r", encoding="utf-8") as manifest_file:
                                     temp_manifest = json.load(manifest_file)
-                                if temp_manifest.get("total_chunks"):
+                                # For GDrive/cloud: do not overwrite total_chunks from temp manifest - use only jsrepd to avoid partial restore (temp manifest may have total_chunks=1 from partial/stale data).
+                                if temp_manifest.get("total_chunks") and not (is_gdrive_restore or is_aws_azure_onedrive_restore):
                                     manifest_data["total_chunks"] = temp_manifest.get("total_chunks")
+                                if temp_manifest.get("total_chunks") and (is_gdrive_restore or is_aws_azure_onedrive_restore):
+                                    manifest_data["chunks"] = {str(i): "" for i in range(1, int(manifest_data.get("total_chunks") or 0) + 1)}
                                 # GDrive/AWS/Azure/OneDrive: keep empty chunk hashes so client skips per-chunk checksum (disk manifest hashes may not match cloud chunks)
                                 if not (is_gdrive_restore or is_aws_azure_onedrive_restore) and temp_manifest.get("chunks"):
                                     manifest_data["chunks"] = temp_manifest.get("chunks")
-                                if temp_manifest.get("file_hash"):
+                                if not (is_gdrive_restore or is_aws_azure_onedrive_restore) and temp_manifest.get("file_hash"):
                                     manifest_data["file_hash"] = temp_manifest.get("file_hash")
                                 found_manifest_path = best_manifest
                                 if not os.path.exists(manifest_path):
@@ -9394,17 +9550,24 @@ def get_restore_data():
                                         pass
                         except Exception:
                             pass
-                    # For cloud restore, use backup_id (file id = content hash). Do not use jsrepd sha256Checksum
-                    # etc. — those can be the hash of the uploaded blob (compressed/encrypted), not the original file.
+                    # GDrive: cap total_chunks by gidn_list length so client never gets more chunk indices than GDrive IDs (avoids "list index out of range")
+                    if is_gdrive_restore:
+                        gidn_list = jsrepd.get("gidn_list") or []
+                        if isinstance(gidn_list, list) and len(gidn_list) > 0:
+                            capped = min(int(manifest_data.get("total_chunks") or 0), len(gidn_list))
+                            if capped >= 1:
+                                manifest_data["total_chunks"] = capped
+                                manifest_data["chunks"] = {str(i): "" for i in range(1, capped + 1)}
+                            # #region agent log
+                            # #endregion
+                    # For cloud restore use only jsrepd file_hash (same run as gidn_list). Do not use backup_id or disk manifest.
                     if not manifest_data.get("file_hash"):
-                        if is_cloud_restore and backup_id:
-                            manifest_data["file_hash"] = str(backup_id)
-                        elif jsrepd:
+                        if jsrepd:
                             for key in ["file_hash", "filehash", "hash", "sha256", "sha256Checksum"]:
                                 if jsrepd.get(key):
                                     manifest_data["file_hash"] = str(jsrepd.get(key))
                                     break
-                        if not manifest_data.get("file_hash") and backup_id:
+                        if not manifest_data.get("file_hash") and not is_cloud_restore and backup_id:
                             manifest_data["file_hash"] = str(backup_id)
                     try:
                         log_event(
@@ -9428,6 +9591,93 @@ def get_restore_data():
                     except Exception:
                         pass
                 else:
+                    # LAN restore: try main folder first (manifest_path from from_path); if missing, fall back to temp scan.
+                    try:
+                        log_event(
+                            logger,
+                            logging.INFO,
+                            ensure_job_id(j_sta),
+                            "restore",
+                            file_path=rec_dict.get("full_file_name"),
+                            file_id=backup_id,
+                            error_code="",
+                            error_message="",
+                            extra={
+                                "event": "restore_lan_manifest_resolve",
+                                "manifest_path": manifest_path,
+                                "from_path": rec_dict.get("from_path"),
+                            },
+                        )
+                    except Exception:
+                        pass
+                    if not os.path.exists(manifest_path):
+                        _scanned_manifest = None
+                        try:
+                            upload_root = app.config.get("UPLOAD_FOLDER")
+                            base_temp = add_unc_temppath()
+                            # Prefer normal path (no \\?\) for scanning so os.path.exists/os.walk work on all Windows setups.
+                            temp_normal = str(base_temp).replace("\\\\?\\", "") if str(base_temp).startswith("\\\\?\\") else base_temp
+                            scan_roots = []
+                            if upload_root:
+                                scan_roots.append(upload_root)
+                            if temp_normal and temp_normal not in scan_roots:
+                                scan_roots.append(temp_normal)
+                            if base_temp and base_temp not in scan_roots and os.path.exists(base_temp):
+                                scan_roots.append(base_temp)
+                            # Backup uses job id (j_sta) in manifest filename, not file id (backup_id).
+                            # Only accept manifests under the same from_path and from the same backup job.
+                            preferred_suffix = f"{file_name_for_manifest}_{backup_job_id}.manifest.json"
+                            from_path_raw = (rec_dict.get("from_path") or "").replace("/", os.sep).rstrip(os.sep)
+                            from_path_norm = os.path.normpath(from_path_raw) if from_path_raw else ""
+                            for scan_root in scan_roots:
+                                if not scan_root or not os.path.exists(scan_root):
+                                    continue
+                                for root, _, files in os.walk(scan_root):
+                                    for fname in files:
+                                        if not (fname.startswith(f"{file_name_for_manifest}_") and fname.endswith(".manifest.json")):
+                                            continue
+                                        cand = os.path.join(root, fname)
+                                        parent_norm = os.path.normpath(root.replace("/", os.sep).rstrip(os.sep))
+                                        path_match = (
+                                            not from_path_norm or
+                                            parent_norm.endswith(from_path_norm) or
+                                            parent_norm == os.path.normpath(os.path.join(scan_root, from_path_raw))
+                                        )
+                                        if not path_match:
+                                            continue
+                                        # Only accept manifest for this backup job (backup_job_id).
+                                        if fname == preferred_suffix or str(backup_job_id) in fname:
+                                            _scanned_manifest = cand
+                                            break
+                                    if _scanned_manifest and os.path.basename(_scanned_manifest) == preferred_suffix:
+                                        break
+                                if _scanned_manifest:
+                                    break
+                            if _scanned_manifest:
+                                manifest_path = _scanned_manifest
+                                log_event(
+                                    logger,
+                                    logging.INFO,
+                                    ensure_job_id(j_sta),
+                                    "restore",
+                                    file_path=rec_dict.get("full_file_name"),
+                                    file_id=backup_id,
+                                    error_code="",
+                                    error_message="",
+                                    extra={"event": "restore_manifest_found_by_scan", "manifest_path": manifest_path},
+                                )
+                        except Exception as scan_err:
+                            log_event(
+                                logger,
+                                logging.DEBUG,
+                                ensure_job_id(j_sta),
+                                "restore",
+                                file_path=rec_dict.get("full_file_name"),
+                                file_id=backup_id,
+                                error_code="",
+                                error_message=str(scan_err),
+                                extra={"event": "restore_manifest_scan_error"},
+                            )
                     if not os.path.exists(manifest_path):
                         log_event(
                             logger,
@@ -9647,15 +9897,26 @@ def get_restore_data():
                             mtime=time.time(),
                         ))})
                 print("FFF " + str(header))
-                rr.append(header)
+                # Store per-file manifest and rec so the request loop uses the correct manifest for each file (fixes wrong file_hash / FILE_CHECKSUM_MISMATCH when restoring multiple files)
+                file_chunk_manifest = copy.deepcopy(manifest_data)
+                rr.append((header, file_chunk_manifest, copy.deepcopy(rec_dict)))
                 event = threading.Event()
             resp_dict = []
             res=None
             ftotal=len(rr)
             fci=0
-            for re in rr:
+            for re, file_chunk_manifest, rec_dict in rr:
                 res_json={}
                 try:
+                    backup_id = str(rec_dict.get("id", ""))
+                    backup_pid = str(rec_dict.get("name", rec_dict.get("id", "")))
+                    backup_name = str(rec_dict.get("pNameText", ""))
+                    backup_name_id = str(rec_dict.get("pIdText", ""))
+                    frombackup_computer_name = str(rec_dict.get("from_computer", ""))
+                    try:
+                        jsrepd = json.loads(rec_dict.get("log") or "{}")
+                    except Exception:
+                        jsrepd = {}
                     res_json["backup_id"]=backup_id
                     res_json["backup_pid"]=backup_pid
                     res_json["backup_name"]=backup_name
@@ -9668,11 +9929,7 @@ def get_restore_data():
                     res_json["t14"]=str(j_sta)
                     res_json["isMetaFile"]=jsrepd.get('isMetaFile',False)
                     try:
-                        if is_cloud_restore:
-                            res_json["chunk_manifest"] = manifest_data
-                        else:
-                            with open(manifest_path, "r", encoding="utf-8") as manifest_file:
-                                res_json["chunk_manifest"] = json.load(manifest_file)
+                        res_json["chunk_manifest"] = file_chunk_manifest
                     except Exception:
                         res_json["chunk_manifest"] = {}
                     

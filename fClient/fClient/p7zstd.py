@@ -224,6 +224,7 @@ class p7zstd:
             import traceback
             traceback.print_exc()
             print("Error reading archive:", e)
+            raise
         #return extracted["data.bin"]
         #return extracted["file_name"]
         #return extracted["file_name"].getvalue()
