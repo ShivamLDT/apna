@@ -124,6 +124,28 @@ function normalizeKeyBytes(key) {
   }
   return '';
 }
+
+/** Ensure key is a primitive binary string so forge/cipher never sees an object (fixes p.length is not a function in bundled build). */
+function toForgeKey(key) {
+  if (!key) {
+    console.error('[toForgeKey] Key is null/undefined');
+    return '';
+  }
+  const keyStr = normalizeKeyBytes(key);
+  if (!keyStr) {
+    console.error('[toForgeKey] normalizeKeyBytes returned empty string');
+    return '';
+  }
+  if (![16, 24, 32].includes(keyStr.length)) {
+    console.error(`[toForgeKey] Invalid key length: ${keyStr.length} (expected 16, 24, or 32)`);
+    return '';
+  }
+  const bytes = [];
+  for (let i = 0; i < keyStr.length; i++) {
+    bytes.push(keyStr.charCodeAt(i) & 0xff);
+  }
+  return String.fromCharCode.apply(null, bytes);
+}
 function normalizeBytes(value) {
   if (!value) return '';
   if (typeof value === 'string') return value;
@@ -265,11 +287,16 @@ async function generateAESKey() {
   return strToU8(key);
 }
 async function aesEncrypt(data, aesKey) {
+  if (!aesKey) {
+    throw new Error('Invalid AES key: key is null or undefined');
+  }
   const plaintext = JSON.stringify(data);
   const ivBytes = forge.random.getBytesSync(12);
-  const keyStr = normalizeKeyBytes(aesKey);
-  if (![16, 24, 32].includes(keyStr.length)) {
-    throw new Error('Invalid AES key length');
+  const keyStr = toForgeKey(aesKey);
+  if (!keyStr || ![16, 24, 32].includes(keyStr.length)) {
+    const keyType = typeof aesKey;
+    const keyLength = aesKey?.length ?? 'unknown';
+    throw new Error(`Invalid AES key length: got ${keyStr?.length || 0} bytes (key type: ${keyType}, original length: ${keyLength})`);
   }
   const cipher = forge.cipher.createCipher('AES-GCM', keyStr);
   cipher.start({ iv: ivBytes, tagLength: 128 });
@@ -295,9 +322,14 @@ async function aesDecrypt(enc, aesKey) {
   }
   const ciphertextStr = combinedStr.slice(0, -16);
   const tagStr = combinedStr.slice(-16);
-  const keyStr = normalizeKeyBytes(aesKey);
+  if (!aesKey) {
+    throw new Error('Invalid AES key: key is null or undefined');
+  }
+  const keyStr = toForgeKey(aesKey);
   if (!keyStr || ![16, 24, 32].includes(keyStr.length)) {
-    throw new Error('Invalid AES key length');
+    const keyType = typeof aesKey;
+    const keyLength = aesKey?.length ?? 'unknown';
+    throw new Error(`Invalid AES key length: got ${keyStr?.length || 0} bytes (key type: ${keyType}, original length: ${keyLength})`);
   }
   const decipher = forge.cipher.createDecipher('AES-GCM', keyStr);
   decipher.start({
@@ -311,6 +343,10 @@ async function aesDecrypt(enc, aesKey) {
     throw new Error('AES-GCM decryption failed');
   }
   const plain = decipher.output.toString('utf8');
+  const trimmed = (plain && typeof plain === 'string') ? plain.trim() : '';
+  if (!trimmed || (trimmed[0] !== '{' && trimmed[0] !== '[')) {
+    throw new Error('Decryption produced invalid JSON (server may have returned non-encrypted response)');
+  }
   try {
     return JSON.parse(plain);
   } catch (e) {
@@ -331,19 +367,32 @@ async function performHandshake() {
   const newKeyId = data.key_id;
   const rsaPubKey = importRSAPublicKey(data.pub_pem);
   const newAesKey = await generateAESKey();
+  // Validate generated key before proceeding
+  if (!newAesKey || newAesKey.length !== 32) {
+    throw new Error(`Failed to generate valid AES key: got length ${newAesKey?.length || 0}`);
+  }
   const encAES = encryptAESKeyWithRSA(newAesKey, rsaPubKey);
   try {
-    await axios.post(`${config.API.Server_URL}/handshake/confirm`, {
+    const confirmResp = await axios.post(`${config.API.Server_URL}/handshake/confirm`, {
       key_id: newKeyId,
       enc_aes_b64: encAES,
     });
+    if (confirmResp.status < 200 || confirmResp.status >= 300) {
+      throw new Error(`Handshake confirm failed with status ${confirmResp.status}`);
+    }
   } catch (error) {
-    console.error(error)
+    console.error('[performHandshake] Handshake confirm failed:', error);
+    throw error; // Re-throw so ensureSession knows handshake failed
   }
+  // Only set session if handshake succeeded
   aesKey = newAesKey;
   keyId = newKeyId;
   sessionExpiry = Date.now() + SESSION_LIFETIME_MS;
   await saveSession(keyId, aesKey, sessionExpiry);
+  // Validate key was set correctly
+  if (!aesKey || aesKey.length !== 32) {
+    throw new Error(`Session key invalid after handshake: length ${aesKey?.length || 0}`);
+  }
 }
 export async function ensureSession() {
   if (isSessionValid()) return;
@@ -351,7 +400,8 @@ export async function ensureSession() {
   handshakePromise = (async () => {
     try {
       const saved = await loadSession();
-      if (saved && saved.keyId && saved.aesKey) {
+      const validKeyLen = saved?.aesKey && [16, 24, 32].includes(saved.aesKey.length);
+      if (saved && saved.keyId && validKeyLen) {
         try {
           const { data } = await axios.post(
             `${config.API.Server_URL}/handshake/check-key`,
@@ -361,21 +411,46 @@ export async function ensureSession() {
             aesKey = saved.aesKey;
             keyId = saved.keyId;
             sessionExpiry = data.ttl != null ? Date.now() + data.ttl * 1000 : saved.expiresAt;
+            // Validate key was set
+            if (!aesKey || ![16, 24, 32].includes(aesKey.length)) {
+              throw new Error(`Restored session key invalid: length ${aesKey?.length || 0}`);
+            }
             return;
           } else {
             clearSession();
           }
         } catch (e) {
+          console.warn('[ensureSession] check-key failed:', e);
           clearSession();
         }
+      } else if (saved && !validKeyLen) {
+        console.warn('[ensureSession] Invalid key length in saved session, clearing');
+        clearSession();
       }
     } catch (e) {
-      console.warn("Could not restore session:", e);
+      console.warn("[ensureSession] Could not restore session:", e);
     }
-    await performHandshake();
+    // Perform handshake - if it fails, throw so caller knows
+    try {
+      await performHandshake();
+      // Validate key was set after handshake
+      if (!aesKey || ![16, 24, 32].includes(aesKey.length)) {
+        throw new Error(`Handshake completed but key invalid: length ${aesKey?.length || 0}`);
+      }
+    } catch (handshakeError) {
+      // Clear any partial state
+      aesKey = null;
+      keyId = null;
+      sessionExpiry = null;
+      console.error('[ensureSession] Handshake failed:', handshakeError);
+      throw handshakeError; // Re-throw so request() knows session failed
+    }
   })();
   try {
     await handshakePromise;
+  } catch (error) {
+    // Re-throw so request() can handle it
+    throw error;
   } finally {
     handshakePromise = null;
   }
@@ -415,6 +490,10 @@ async function request(method, url, data = null, config = {}) {
         // timeout: config.timeout || 60000,
       };
       if (data) {
+        // Double-check key is valid before encrypting
+        if (!aesKey || ![16, 24, 32].includes(aesKey.length)) {
+          throw new Error(`Cannot encrypt: AES key invalid (length: ${aesKey?.length || 0})`);
+        }
         const payloadWithTime = {
           ...(data || {}),
           time: unixTime,
@@ -426,8 +505,11 @@ async function request(method, url, data = null, config = {}) {
       }
       const resp = await axios(newConfig);
       const payload = resp?.data;
-      if (payload && typeof payload === 'object' && 'iv' in payload) {
-        if (!('ct' in payload) || !payload.ct) {
+      // Only decrypt when response looks like encrypted blob (iv+ct), not plain API JSON that happens to have "iv"/"ct" keys
+      const looksEncrypted = payload && typeof payload === 'object' && 'iv' in payload && ('ct' in payload && payload.ct);
+      const looksPlainApi = payload && typeof payload === 'object' && ('result' in payload || 'data' in payload || 'jobs' in payload || (typeof payload.error === 'string'));
+      if (looksEncrypted && !looksPlainApi) {
+        if (!payload.ct) {
           console.warn('Encrypted response missing "ct", invalidating session and retrying');
           invalidateSession();
           if (retried < maxRetries) {
@@ -436,6 +518,10 @@ async function request(method, url, data = null, config = {}) {
             continue;
           }
           throw new Error('Invalid encrypted response (missing ciphertext)');
+        }
+        // Double-check key is valid before decrypting
+        if (!aesKey || ![16, 24, 32].includes(aesKey.length)) {
+          throw new Error(`Cannot decrypt: AES key invalid (length: ${aesKey?.length || 0})`);
         }
         try {
           resp.data = await aesDecrypt(payload, aesKey);
@@ -452,6 +538,14 @@ async function request(method, url, data = null, config = {}) {
       }
       return resp;
     } catch (error) {
+      // If session establishment failed, don't retry - it will keep failing
+      if (error?.message?.includes('Session not established') || 
+          error?.message?.includes('Handshake failed') ||
+          error?.message?.includes('Failed to generate valid AES key') ||
+          error?.message?.includes('Session key invalid')) {
+        console.error('[request] Session establishment failed, not retrying:', error.message);
+        throw error;
+      }
 
       const errObj = error?.response?.data || {};
       let errCode = errObj?.error || errObj?.msg || error?.response?.error || error?.code || error?.message || null;
