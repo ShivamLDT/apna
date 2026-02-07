@@ -1840,7 +1840,7 @@ const Restore = () => {
                                                             )}%`,
                                                         }}
                                                     >
-                                                        {item.wdone}%
+                                                        {Math.min(100, Math.max(0, item.wdone ?? 0))}%
                                                     </div>
                                                 </div>
                                             </div>

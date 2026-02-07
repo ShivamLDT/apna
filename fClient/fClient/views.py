@@ -1850,9 +1850,17 @@ def restoretest():
         #     except:
         #         print("not removed")
 
-        # Verify file actually exists before reporting success (UNC/restore path)
+        # Verify file actually exists before reporting success (UNC/restore path).
+        # Only run for file restores: folder records have restore_target as a directory, so isfile would wrongly fail.
         restore_target = tccx if tccx else (target_file_name or jsrepd.get("restore_path", ""))
-        if restore_target and str(rep).upper() == "UNC":
+        mime_str = (request.headers.get("mime") or "").strip()
+        try:
+            if mime_str and mime_str not in ("file", "folder") and len(mime_str) > 4:
+                mime_str = gzip.decompress(base64.b64decode(mime_str)).decode("UTF-8", errors="ignore").strip()
+        except Exception:
+            pass
+        is_file_restore = (mime_str or "").lower() == "file"
+        if restore_target and str(rep).upper() == "UNC" and is_file_restore:
             if not os.path.isfile(restore_target):
                 log_event(
                     logger,

@@ -4021,7 +4021,7 @@ def upload_file_unc():
         file_name = ""
         x = float(jsvkrgs.get("filesdone",0))
         nx = float(jsvkrgs.get("totalfiles",0))
-        accuracy=100.00*(x/nx)
+        accuracy = min(100.0, 100.00 * (x / nx)) if nx else 0.0
         sktio.emit(
             "backup_data",
             {
@@ -4409,7 +4409,7 @@ def upload_file_nas():
         file_name = ""
         x = float(jsvkrgs.get("filesdone",0))
         nx = float(jsvkrgs.get("totalfiles",0))
-        accuracy=100.00*(x/nx)
+        accuracy = min(100.0, 100.00 * (x / nx)) if nx else 0.0
         sktio.emit(
             "backup_data",
             {
@@ -8621,19 +8621,30 @@ import json
 
 
 def add_file(tree, path):
+    path = str(path).strip()
+    if not path:
+        return
+    path_normalized = str(path).replace("{{DRIVE}}", ":")
     current = tree
-    folders, filename = os.path.split(path)
-    for folder in folders.split(os.path.sep):
+    folders, filename = os.path.split(path_normalized)
+    parts = [p for p in folders.split(os.path.sep) if p]
+    for folder in parts:
         if folder not in current["children"]:
+            parent_path = current["path"]
+            segment_for_api = folder.replace(":", "{{DRIVE}}") if len(folder) == 2 and folder[1] == ":" else folder
+            child_path = os.path.join(parent_path, segment_for_api) if parent_path else segment_for_api
             current["children"][folder] = {
                 "type": "folder",
-                "path": os.path.join(current["path"], folder),
+                "path": child_path,
                 "children": {},
             }
         current = current["children"][folder]
+    if not filename:
+        return
+    path_for_api = str(path).replace(":", "{{DRIVE}}") if ":" in path else path
     current["children"][filename] = {
         "type": "file",
-        "path": str(path).replace("{{DRIVE}}", ":"),
+        "path": path_for_api,
         "children": {},
     }
     # print(json.dumps(current, indent=4))
@@ -8642,7 +8653,7 @@ def add_file(tree, path):
 def build_json_responseX(paths):
     hierarchy = {"type": "", "path": "", "children": {}}
     for path in paths:
-        add_file(hierarchy, str(path).replace("", ""))
+        add_file(hierarchy, str(path).strip())
     return hierarchy
 
 
@@ -9386,6 +9397,10 @@ def get_restore_data():
                         if _cand_str in _tcc_value or _cand_norm in _tcc_value:
                             _rec_fpath = _cand_str
                             break
+                    # Prefer backup root (targetLocation) so we never produce restore_destination\backup_root_basename (extra empty folder)
+                    _tl = (targetLocation or "").rstrip(os.sep)
+                    if _tl and (str(from_path).startswith(_tl + os.sep) or str(from_path).rstrip(os.sep) == _tl or _tcc_value.startswith(_tl) or _tcc_value.replace(":", "{{DRIVE}}").startswith(_tl.replace(":", "{{DRIVE}}"))):
+                        _rec_fpath = targetLocation
                 except Exception:
                     pass
                 
@@ -9795,7 +9810,10 @@ def get_restore_data():
                     original_p = suffix
                     if original_p.startswith(os.sep):
                         original_p="".join(original_p.split(os.sep)[0:])
-                    RestoreLocation = os.path.join(RestoreLocation,original_p)
+                    # Don't append the backup root folder name: restore into RestoreLocation directly, not RestoreLocation/rootname
+                    backup_root_basename = os.path.basename(targetLocation.rstrip(os.sep)) if targetLocation else ""
+                    if not (backup_root_basename and original_p.strip() == backup_root_basename):
+                        RestoreLocation = os.path.join(RestoreLocation, original_p)
                 # Use RestoreLocation (path user set in frontend, e.g. Downloads) as the restore destination.
                 restore_destination = (RestoreLocation if (RestoreLocation and str(RestoreLocation).strip()) else targetLocation)
                 file_basename = os.path.basename(full_name) if full_name else ""
@@ -9819,6 +9837,7 @@ def get_restore_data():
                     _repd_dict = {}
                 _repd_dict["from_path"] = rec_dict.get("from_path", "")
                 _repd_dict["j_sta"] = rec_dict.get("name", "")
+                _repd_dict["restore_path"] = restore_destination
                 _repd_json = json.dumps(_repd_dict)
 
                 _restore_norm = str(restore_destination).replace(":", "{{DRIVE}}")
@@ -9831,6 +9850,26 @@ def get_restore_data():
                         str(restore_destination+"\\").replace(":", "{{DRIVE}}"),
                     ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else '')
                     _tccn_value = _tccx_value  # Same transformation
+                # Path sent to client for tccn: avoid creating restore_destination\backup_root_basename (empty folder)
+                _from_path = str(rec_dict.get("from_path", ""))
+                _file_name = str(rec_dict.get("file_name", ""))
+                _full_from = (_from_path + os.sep + _file_name).rstrip(os.sep) if _file_name else _from_path.rstrip(os.sep)
+                _tl_norm = (targetLocation or "").rstrip(os.sep).replace(":", "{{DRIVE}}")
+                _tl_plain = (targetLocation or "").rstrip(os.sep)
+                _is_backup_root_record = (
+                    _full_from == _tl_plain or _full_from == _tl_norm
+                    or _tcc_value.rstrip(os.sep) == _tl_plain or _tcc_value.replace(":", "{{DRIVE}}").rstrip(os.sep) == _tl_norm
+                )
+                if _is_backup_root_record:
+                    _tccn_path_for_header = restore_destination.rstrip(os.sep)
+                else:
+                    _tccn_path_for_header = os.path.join(
+                        _from_path.replace(
+                            _rec_fpath.replace(":", "{{DRIVE}}"),
+                            str(restore_destination + "\\").replace(":", "{{DRIVE}}"),
+                        ).replace("\\\\", "\\").rstrip("\\" if mime_type == "file" else ""),
+                        _file_name,
+                    ).rstrip(os.sep)
                 
                 header = {
                     "id": backup_id,
@@ -9897,13 +9936,7 @@ def get_restore_data():
                     ),
                     "tccn": base64.b64encode(
                         gzip.compress(
-                            os.path.join(
-                                str(rec_dict.get("from_path", "")).replace(
-                                    _rec_fpath.replace(":", "{{DRIVE}}"),
-                                    str(restore_destination+"\\").replace(":", "{{DRIVE}}"),
-                                ).replace("\\\\","\\").rstrip('\\' if mime_type=='file' else ''),
-                                str(rec_dict.get("file_name", "")),
-                            ).encode("UTF-8"),
+                            str(_tccn_path_for_header).replace(":", "{{DRIVE}}").encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
@@ -10517,7 +10550,7 @@ def get_restore_data():
                                 "data_repo": dict(job)["data_repo"],
                                 "type": dict(job)["mime_type"],
                                 "size": dict(job)["size"],
-                                "wdone": dict(job)["wdone"],
+                                "wdone": min(100.0, float(dict(job).get("wdone", 0) or 0)),
                                 
                             }
 
