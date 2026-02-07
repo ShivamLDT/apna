@@ -224,6 +224,9 @@ const StatsCards = ({ jobCounts, networkData, connectedNodesCount, loading, refe
                     {stat.loading ? "..." : stat.value}
                   </p>
                   <p className="text-xs font-semibold text-gray-600">{stat.title}</p>
+                  {stat.subtext ? (
+                    <p className="text-[10px] text-gray-500">{stat.subtext}</p>
+                  ) : null}
                 </div>
               </div>
             </div>

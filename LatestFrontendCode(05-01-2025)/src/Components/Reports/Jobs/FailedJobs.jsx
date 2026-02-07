@@ -37,7 +37,12 @@ export default function FailedJobs() {
             {item.computerName || item.nodeName}
         </td>,
         <td key="jobname" className="border px-2 py-1 text-xs text-gray-700 break-words whitespace-normal">
-            {item.job_name}
+            {item.job_type === 'restore' ? (
+                <span className="inline-flex items-center gap-1">
+                    <span className="px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-800">Restore</span>
+                    {item.job_name}
+                </span>
+            ) : item.job_name}
         </td>,
         <td key="location" className="border px-2 py-1 text-xs text-gray-700 break-words whitespace-normal">
             {item.job_folder}
@@ -68,13 +73,16 @@ export default function FailedJobs() {
     const { setOpenSuccessful, openSuccessful } = useContext(RestoreContext);
 
 
-    const uniqueFailedData = failedData.filter((job, index, arr) =>
-        arr.findIndex(j =>
-            j.job_name === job.job_name &&
-            j.error_desc === job.error_desc &&
-            j.missed_time === job.missed_time
-        ) === index
-    );
+    // Job-level dedupe: one row per job (by job key per type)
+    const uniqueFailedData = failedData.filter((job, index, arr) => {
+        const isSameJob = (j) =>
+            (job.job_type === 'restore' && j.job_type === 'restore' && j.job_id === job.job_id) ||
+            ((!job.job_type || job.job_type !== 'restore') && (!j.job_type || j.job_type !== 'restore') &&
+                j.job_name === job.job_name &&
+                (j.nodeName || j.computerName) === (job.nodeName || job.computerName) &&
+                (j.missed_time || j.create_time) === (job.missed_time || job.create_time));
+        return arr.findIndex(isSameJob) === index;
+    });
     const filteredData = uniqueFailedData.filter(item => {
         const name = item.computerName || item.nodeName || '';
         const nameMatch = !filters.name || name === filters.name;

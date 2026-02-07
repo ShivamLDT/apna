@@ -8,7 +8,7 @@ import JobFilterPopup from './JobFilterPopup';
 import SuccessFailurePanel from './SuccessFailurePanel';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import '../../Restore/Restore.css';
-import { PDFDownloadLink, Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet, Image } from "@react-pdf/renderer";
 import { pdf } from '@react-pdf/renderer';
 import * as XLSX from "xlsx";
 import PDF from '../../../assets/pdf.png';
@@ -16,13 +16,9 @@ import XL from '../../../assets/XLSD.png';
 import html2canvas from 'html2canvas';
 import CryptoJS from "crypto-js"
 import useSaveLogs from '../../../Hooks/useSaveLogs';
-import axios from "axios";
 import axiosInstance from '../../../axiosinstance';
-import SelectEndpointPopup from "../../Restore/SelectEndpointPopup"
-import { Backupindex } from '../../../Context/Backupindex';
 import { RestoreContext } from '../../../Context/RestoreContext';
-import { NotificationContext } from '../../../Context/NotificationContext';
-import Endpointlistpopup from "./Endpointlistpopup"
+ 
 import AlertComponent from '../../../AlertComponent';
 import LoadingComponent from '../../../LoadingComponent';
 
@@ -103,8 +99,7 @@ export default function SuccessfullJobs() {
     const navigate = useNavigate();
     const uniqueNames = [...new Set(successData.map(item => item.computerName || item.nodeName))];
     const location = useLocation();
-    const { setEndPointAgentName } = useContext(Backupindex);
-    const { openSuccessful, setOpenSuccessful, endPointAgentName, showRestoreReportEndPoint } = useContext(RestoreContext);
+    const { setOpenSuccessful } = useContext(RestoreContext);
     const [applyFilterTrigger, setApplyFilterTrigger] = useState(0);
     const [restoreData, setRestoreData] = useState([]);
     const [alert, setAlert] = useState(null);
@@ -120,25 +115,29 @@ export default function SuccessfullJobs() {
 
     const parseLastModified = (str) => {
         if (!str) return null;
+        const tryDate = new Date(String(str).replace("IST", "GMT+0530"));
+        if (!isNaN(tryDate)) return tryDate;
 
         // Example input: "04/07/2025, 07:38:34 PM"
-        const [datePart, timePart] = str.split(", ");
+        const [datePart, timePart] = String(str).split(", ");
+        if (!datePart || !timePart) return null;
         const [day, month, year] = datePart.split("/").map(Number);
-
-        // Ensure 24-hour format
         const [time, period] = timePart.split(" ");
         let [hours, minutes, seconds] = time.split(":").map(Number);
         if (period === "PM" && hours < 12) hours += 12;
         if (period === "AM" && hours === 12) hours = 0;
-
         return new Date(year, month - 1, day, hours, minutes, seconds);
     };
     const normalizedData = successData?.map(item => ({
         ...item,
-        job_repo: item.data_repo,
-        computerName: item.from_computer,
-        done_time: item.last_modified,
-        status: item.wdone <= 50 ? 'failed' : 'success'
+        name: item.job_name || item.name,
+        data_repo: item.job_repo || item.data_repo,
+        from_computer: item.computerName || item.from_computer || item.nodeName,
+        computerName: item.computerName || item.from_computer || item.nodeName,
+        last_modified: item.done_time || item.create_time || item.last_modified,
+        location: item.job_folder || item.location,
+        wdone: item.wdone ?? 100,
+        status: item.status || 'success',
     }));
 
     const filteredData = normalizedData.filter(item => {
@@ -191,40 +190,34 @@ export default function SuccessfullJobs() {
             return;
         }
 
-        if (!showRestoreReportEndPoint) return
         setLoading(true);
         try {
-            const response = await axiosInstance.post(`${config.API.Server_URL}/restore`, {
-                storageType: "",
-                action: "fetchAll",
-                startDate: formatDate(startOfMonth),
-                endDate: formatDate(endDate),
-                agentName: showRestoreReportEndPoint, // Use the selected agent's name
-            }, {
+            const response = await axiosInstance.get(`${config.API.Server_URL}/api/getsuccessjobs`, {
                 headers: {
                     "Content-Type": "application/json",
-                    token: accessToken,
+                    Job: accessJob,
                 },
             });
 
-            // const data = response.data;
-
             const data = response.data;
+            const successJobs = (data?.successjobs || []).map((jobs) => ({
+                nodeName: jobs.nodeName,
+                data: Array.isArray(jobs.data) ? jobs.data.map(job => ({ ...job, nodeName: jobs.nodeName })) : []
+            }));
 
-
-
-            const allData = data
-                .map((job) => job)
-
+            const allData = successJobs
+                .flatMap((job) => job.data)
+                .filter((item) => item);
 
             const sortedJobs = allData.sort((a, b) => {
-                const dateA = new Date((a.last_modified || ''))
-                const dateB = new Date((b.last_modified || ''))
+                const dateA = parseLastModified(a.done_time || a.create_time || '');
+                const dateB = parseLastModified(b.done_time || b.create_time || '');
+                if (!dateA || !dateB) return 0;
                 return dateB - dateA;
             });
 
             setSuccessData(sortedJobs);
-            setCounts({ total: sortedJobs.length });
+            setCounts({ total: sortedJobs.length, success: sortedJobs.length, failed: 0 });
             setLoading(false);
         } catch (error) {
             console.error("Failed to fetch data", error);
@@ -233,10 +226,8 @@ export default function SuccessfullJobs() {
     };
 
     useEffect(() => {
-        if (openSuccessful) return;                 // don't fetch while the picker is open
-        if (!showRestoreReportEndPoint) return;     // only fetch after an endpoint is selected
         fetchSuccessfulJobsData();
-    }, [showRestoreReportEndPoint, openSuccessful]);
+    }, []);
 
     const chartSuccessRef = useRef(null)
 
@@ -447,7 +438,7 @@ export default function SuccessfullJobs() {
                 setImageData(canvas.toDataURL());
             });
         }
-        const pdfBlob = await pdf(<Successfull successfulData={filteredData} selectedEndpoint={showRestoreReportEndPoint || "All Endpoints"} />).toBlob();
+        const pdfBlob = await pdf(<Successfull successfulData={filteredData} selectedEndpoint={"All Endpoints"} />).toBlob();
         const url = URL.createObjectURL(pdfBlob);
         const link = document.createElement('a');
         link.href = url;
@@ -496,41 +487,14 @@ export default function SuccessfullJobs() {
                 });
 
             const isAllRepo = filters.repo === "" || filters.repo === "All Repositories";
-            const agentName = showRestoreReportEndPoint || "";
-
-            const payload = {
-                storageType: isAllRepo ? "" : filters.repo,
-                ...(isAllRepo && { action: "fetchAll" }),
-                startDate: formatWithTime(start),
-                endDate: formatWithTime(end),
-                agentName: agentName,
-            };
+            void isAllRepo;
 
             setLoading(true);
             try {
-                const response = await axiosInstance.post(
-                    `${config.API.Server_URL}/restore`,
-                    payload,
-                    {
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                    }
-                );
-
-                const data = response.data;
-
-                if (!data || data.length === 0) {
-                    setSuccessData([]);
-                } else {
-                    setSuccessData(Array.isArray(data) ? data : [data]);
-                }
-
-                // setFilters({ name: "", repo: "", status: "", fromDate: "", toDate: "" });
+                await fetchSuccessfulJobsData();
                 setShowFilter(false);
             } catch (error) {
-                console.error("Error fetching restore data:", error);
-                setSuccessData([]);
+                console.error("Error refetching success jobs:", error);
             } finally {
                 setLoading(false);
             }
@@ -607,12 +571,6 @@ export default function SuccessfullJobs() {
         return buf;
     }
 
-    const handleEndpoint = () => {
-        setOpenSuccessful((prev) => !prev);
-        setEndPointAgentName(null);
-        setFilters({ name: "", repo: "", status: "", fromDate: "", toDate: "" });
-        setShowFilter(false)
-    }
     function HandleNavigateJob(path) {
         navigate(path);
         if (path === "/successfuljob") {
@@ -624,7 +582,7 @@ export default function SuccessfullJobs() {
     return (
 
         <>
-            {!openSuccessful ? <div className="successful-jobs-container h-full flex flex-col">
+            <div className="successful-jobs-container h-full flex flex-col">
                 {/* Job Cards Row */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2 flex-shrink-0">
                     <JobCard icon={<BadgeCheck />} amount="Executed Jobs" iconBg="bg-blue-100 text-blue-500" textColor="text-gray-800" onClick={() => HandleNavigateJob('/executedjob')} isActive={location.pathname === '/executedjob'} />
@@ -649,20 +607,13 @@ export default function SuccessfullJobs() {
                         <div className="bg-white rounded-lg p-2 flex flex-col h-full job-table-container">
                             {/* Header - Fixed height */}
                             <div className="flex justify-between items-center mb-4 flex-shrink-0">
-                                <h3 className="text-lg font-bold text-gray-800">Successful Jobs of {showRestoreReportEndPoint}</h3>
+                                <h3 className="text-lg font-bold text-gray-800">Successful Backup Jobs (All Endpoints)</h3>
                                 <div className="flex items-center space-x-2">
                                     <img src={PDF} width={20} onClick={handleDownloadPDF} className="cursor-pointer" />
                                     <img src={XL} width={20} onClick={handleDownloadExcel} className="cursor-pointer" />
 
                                     <button title="Refresh" className="p-2 rounded hover:bg-gray-200 transition" onClick={() => fetchSuccessfulJobsData()}>
                                         <RefreshCw size={20} />
-                                    </button>
-
-                                    <button
-                                        onClick={handleEndpoint}
-                                        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                                    >
-                                        Change Endpoint
                                     </button>
                                     <button
                                         onClick={() => setShowFilter(true)}
@@ -720,7 +671,7 @@ export default function SuccessfullJobs() {
                         onClose={() => setAlert(null)}
                     />
                 )}
-            </div> : <Endpointlistpopup />}
+            </div>
 
         </>
     );

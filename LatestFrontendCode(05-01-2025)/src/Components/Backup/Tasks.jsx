@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './Backup.css';
 import ProgressTracker from './ProgressTracker';
 import Endpoint from './Endpoint';
@@ -83,8 +83,10 @@ export default function BackupConfiguration({
 
   const [loading, setLoading] = useState(true);
   const [nextruntimedata, setnextruntimedata] = useState('');
-  const [showNasPopup, setShowNasPopup] = useState(false)
+  const [showNasPopup, setShowNasPopup] = useState(false);
+  const isSubmittingInstantBackup = useRef(false);
   const [selected, setSelected] = useState("include"); // default: include is active
+
   const handleInclude1 = () => {
     setSelected("include");
     // your logic here
@@ -189,6 +191,9 @@ export default function BackupConfiguration({
       ? fileNameSend.split(',').map(ext => ext.trim()).filter(ext => ext !== '')
       : [];
 
+    const paths = Array.isArray(getRestoreData) ? getRestoreData : (getRestoreData ? [getRestoreData] : []);
+    const selectedPathsDeduped = [...new Set(paths)];
+
     const newformdata = {
       backupProfileId: rendomString,
       bkupType: buttontype,
@@ -197,7 +202,7 @@ export default function BackupConfiguration({
       nextTime: isoString,
       runEveryUnit: backuptypejob,
       selectedExtensions: extensionsArray,
-      selectedPaths: getRestoreData,
+      selectedPaths: selectedPathsDeduped,
       selectedSystems: [endPoint],
     }
     setCollectFormData(newformdata);
@@ -445,7 +450,15 @@ export default function BackupConfiguration({
       return "";
     }
 
+    // Prevent duplicate submission (e.g. double-click before state updates)
+    if (isSubmittingInstantBackup.current) {
+      return;
+    }
+    isSubmittingInstantBackup.current = true;
     setShowSubmitGif(true);
+
+    // Declared outside try so catch block can access it for error messages
+    let newformdata = null;
 
     try {
       setbackuptypejob('instant');
@@ -466,7 +479,11 @@ export default function BackupConfiguration({
         ? fileNameSend.split(',').map(ext => ext.trim()).filter(ext => ext !== '')
         : [];
 
-      const newformdata = {
+      // Dedupe paths so same folder is not scheduled twice in one request
+      const paths = Array.isArray(getRestoreData) ? getRestoreData : (getRestoreData ? [getRestoreData] : []);
+      const selectedPathsDeduped = [...new Set(paths)];
+
+      newformdata = {
         backupProfileId: rendomString,
         bkupType: sendBackType,
         deststorageType: destStorageToUse || null,
@@ -475,7 +492,7 @@ export default function BackupConfiguration({
         runEveryUnit: backuptypejob,
         sc: null,
         selectedExtensions: extensionsArray,
-        selectedPaths: getRestoreData,
+        selectedPaths: selectedPathsDeduped,
         selectedSystems: [endPoint],
         storageType: destinationNamePayload
       };
@@ -484,6 +501,7 @@ export default function BackupConfiguration({
         headers: {
           "Content-Type": "application/json",
         },
+        timeout: 120000, // 2 min - server may wait for client response
       });
 
       // Success handling
@@ -493,7 +511,6 @@ export default function BackupConfiguration({
 
       setShowSubmitGif(false);
       setPopup({ visible: true, message: "Backup Schedule Successful" });
-
 
       const Notification_local_Data = {
         id: Date.now(), // unique ID
@@ -515,21 +532,23 @@ export default function BackupConfiguration({
 
       setShowSubmitGif(false);
 
+      const failMessage = `❌ ${newformdata?.name} Instant Backup failed to Schedule on ${newformdata?.selectedSystems?.[0] ?? "endpoint"}`;
       const Notification_local_Data = {
         id: Date.now(), // unique ID
-        message: `✅ ${newformdata?.name} Backup Schedule on ${newformdata?.selectedSystems[0]}`,
+        message: failMessage,
         timestamp: new Date(),
         isRead: false,
       };
-      sendNotification(`❌ ${newformdata?.name} Instant Backup failed to Schedule on ${newformdata?.selectedSystems[0]}`)
-      // Encrypt the data before saving
+      sendNotification(failMessage);
       const encrypted_Data = encryptData(JSON.stringify(Notification_local_Data));
-      // toast.success(`${newformdata?.name} Backup Schedule on ${newformdata?.selectedSystems[0]}`);
-      showToast(`${newformdata?.name} Instant Backup Schedule on ${newformdata?.selectedSystems[0]}`);
+      showToast(failMessage, "error");
       setNotificationData((prev) => [...prev, Notification_local_Data]);
       sessionStorage.setItem("notification_Data", encrypted_Data);
       sessionStorage.setItem("show_notification_Data", true);
       setPopup({ visible: true, message: "Something Went Wrong" });
+    } finally {
+      isSubmittingInstantBackup.current = false;
+      setShowSubmitGif(false);
     }
   };
 

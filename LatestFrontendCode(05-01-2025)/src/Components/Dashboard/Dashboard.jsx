@@ -50,26 +50,34 @@ const Dashboard = () => {
 
 
   useEffect(() => {
-    socket.current = io(`${config.API.WEB_SOCKET}`);
+    const s = io(`${config.API.WEB_SOCKET}`);
+    socket.current = s;
 
-    let lastMessage = '';
+    const lastMessageRef = { current: '' };
     let messageCooldown = false;
 
-    socket.current.on('message', (message) => {
+    const handleMessage = (message) => {
       if (message && message.message) {
         const messageData = message.message;
-
-        if (messageData !== lastMessage && !messageCooldown) {
-          showToast(`Message: ${messageData}`, "info");
-          lastMessage = messageData;
+        if (messageData !== lastMessageRef.current && !messageCooldown) {
+          showToast(`Message: ${messageData}`, "info", 5000, { toastId: `msg-${messageData}` });
+          lastMessageRef.current = messageData;
           messageCooldown = true;
           setTimeout(() => {
             messageCooldown = false;
-          }, 1000);
+          }, 2000);
         }
       }
-    });
-  }, []);
+    };
+
+    s.on('message', handleMessage);
+
+    return () => {
+      s.off('message', handleMessage);
+      s.disconnect();
+      socket.current = null;
+    };
+  }, [showToast]);
 
 
   // if (jobLoading) {

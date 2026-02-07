@@ -2537,14 +2537,14 @@ def backupprofilescreate():
             # except:
             #     print("")
 
-            return ("200", 200)
+            return jsonify({"result": "ok", "message": "Backup profile created"}), 200
         else:
             requestData["backupProfileId"] = UuidCreate()
             backupprofilescoll.append(requestData)
-            return (request.json, 200)
+            return jsonify({"result": "ok", "data": request.json}), 200
     except:
         # return "Invalid Data",500
-        return request.json, 500
+        return jsonify({"error": "Invalid Data"}), 500
 
 
 @app.route("/backupprofiles", methods=["POST", "GET"])
@@ -2971,7 +2971,6 @@ def fetch_all_failed_success_jobs():
         request_data = request.json
 
     action = request_data.get('action', None)
-
     ar=[]
     failed_jobs=fetch_all_failed_jobs(action)
     for item in failed_jobs.get("failedjobs",None):
@@ -2990,7 +2989,137 @@ def fetch_all_failed_success_jobs():
             ar = sorted(ar, key=itemgetter("nodeName", "status"))
 
     resp={"data":ar}
+    if action == "count":
+        backup_success_total = 0
+        backup_failed_total = 0
+        try:
+            for item in ar:
+                status = item.get("status")
+                if status == "success":
+                    total_success = item.get("total_success", 0)
+                    if isinstance(total_success, dict):
+                        backup_success_total += int(total_success.get("total", 0) or 0)
+                    else:
+                        backup_success_total += int(total_success or 0)
+                elif status == "failed":
+                    total_failed = item.get("total_failed", 0)
+                    if isinstance(total_failed, dict):
+                        backup_failed_total += int(total_failed.get("total_failed", 0) or 0)
+                    else:
+                        backup_failed_total += int(total_failed or 0)
+        except Exception:
+            backup_success_total = 0
+            backup_failed_total = 0
+
+        restore_success = 0
+        restore_failed = 0
+        file_restore_success = 0
+        file_restore_failed = 0
+        try:
+            dbname = f'{str(app.config.get("getCode"))}.db'
+            with sqlite3.connect(dbname) as _conn:
+                _cur = _conn.cursor()
+                _cur.execute("SELECT COUNT(*) FROM restores WHERE restore = 'success'")
+                file_restore_success = int(_cur.fetchone()[0] or 0)
+                _cur.execute("SELECT COUNT(*) FROM restores WHERE restore = 'failed'")
+                file_restore_failed = int(_cur.fetchone()[0] or 0)
+                _cur.execute(
+                    "SELECT t14, SUM(CASE WHEN restore = 'failed' THEN 1 ELSE 0 END) "
+                    "FROM restores GROUP BY t14"
+                )
+                rows = _cur.fetchall()
+                for row in rows:
+                    failed_cnt = row[1] or 0
+                    if failed_cnt > 0:
+                        restore_failed += 1
+                    else:
+                        restore_success += 1
+            resp["restore_counts"] = {"success": restore_success, "failed": restore_failed}
+        except Exception:
+            resp["restore_counts"] = {"success": 0, "failed": 0}
+        resp["counts"] = {
+            "backup": {
+                "success": backup_success_total,
+                "failed": backup_failed_total,
+                "total": backup_success_total + backup_failed_total,
+            },
+            "restore": {
+                "success": restore_success,
+                "failed": restore_failed,
+                "total": restore_success + restore_failed,
+            },
+            "combined": {
+                "success": backup_success_total + restore_success,
+                "failed": backup_failed_total + restore_failed,
+                "total": backup_success_total + backup_failed_total + restore_success + restore_failed,
+            },
+        }
     return jsonify(resp,200)
+
+def _fetch_failed_restore_jobs():
+    """Fetch failed restore jobs from server DB (job-level: one row per t14)."""
+    out = []
+    try:
+        dbname = f'{str(app.config.get("getCode"))}.db'
+        with sqlite3.connect(dbname) as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT t14, backup_name, from_backup_pc, torestore_pc, reason, file_start, targetlocation, storage_type
+                FROM restores
+                WHERE restore = 'failed'
+                GROUP BY t14
+            """)
+            for row in cur.fetchall():
+                t14, backup_name, from_backup_pc, torestore_pc, reason, file_start, targetlocation, storage_type = row
+                file_start_str = str(file_start)[:19] if file_start else ""
+                if file_start_str and len(file_start_str) >= 19:
+                    try:
+                        dt = datetime.datetime.strptime(file_start_str, "%Y-%m-%d %H:%M:%S")
+                        file_start_str = dt.strftime("%a, %d %b %Y %H:%M:%S GMT")
+                    except Exception:
+                        pass
+                out.append({
+                    "job_name": backup_name or "",
+                    "nodeName": torestore_pc or from_backup_pc or "Restore",
+                    "computerName": torestore_pc or from_backup_pc or "Restore",
+                    "job_folder": targetlocation or "",
+                    "job_repo": storage_type or "",
+                    "create_time": file_start_str,
+                    "missed_time": file_start_str,
+                    "error_desc": reason or "Restore failed",
+                    "job_type": "restore",
+                    "job_id": str(t14),
+                })
+    except Exception:
+        pass
+    return out
+
+
+def _aggregate_backup_failed_by_job(data):
+    """Ensure one row per logical job (job-level): one row per job per endpoint, keep most recent run."""
+    if not isinstance(data, list):
+        return data
+    by_job = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        if item.get("total_failed") is not None and "job_name" not in item and "job_id" not in item:
+            continue
+        key = (
+            item.get("job_id") or item.get("job_name") or "",
+            item.get("nodeName") or item.get("computerName") or "",
+        )
+        existing = by_job.get(key)
+        if existing is None:
+            by_job[key] = item
+        else:
+            # Keep the more recent (by missed_time / create_time)
+            t = (item.get("missed_time") or item.get("create_time") or "")
+            t_ex = (existing.get("missed_time") or existing.get("create_time") or "")
+            if t > t_ex:
+                by_job[key] = item
+    return list(by_job.values())
+
 
 def fetch_all_failed_jobs(action=None):
     urls = clientnodes_x
@@ -3083,6 +3212,16 @@ def fetch_all_failed_jobs(action=None):
                 res.append({"node": url,"nodeName": e.get("agent",""), "data": data})
     except:
         pass
+
+    # When returning full list (not count-only): job-level rows + include failed restores
+    if action != "count":
+        for item in res:
+            data = item.get("data") or []
+            item["data"] = _aggregate_backup_failed_by_job(data)
+        restore_rows = _fetch_failed_restore_jobs()
+        if restore_rows:
+            res.append({"node": "server", "nodeName": "Restores", "data": restore_rows})
+
     return {"failedjobs": res}#, "total_failed":total_count}
 
 
@@ -9486,8 +9625,6 @@ def get_restore_data():
                         "chunks": {str(i): "" for i in range(1, total_chunks_g + 1)},
                     }
                     found_manifest_path = None
-                    # #region agent log
-                    # #endregion
                     # UNC-specific: Build manifest from stored chunk metadata
                     # UNC backup stores chunks array with path, hash, size in jsrepd
                     if is_unc_restore and jsrepd.get("chunks"):
@@ -9607,8 +9744,6 @@ def get_restore_data():
                             if capped >= 1:
                                 manifest_data["total_chunks"] = capped
                                 manifest_data["chunks"] = {str(i): "" for i in range(1, capped + 1)}
-                            # #region agent log
-                            # #endregion
                     # For cloud restore use only jsrepd file_hash (same run as gidn_list). Do not use backup_id or disk manifest.
                     if not manifest_data.get("file_hash"):
                         if jsrepd:

@@ -20,22 +20,27 @@ const ToastProvider = ({ children }) => {
   const [showLowBandwidthWarning, setShowLowBandwidthWarning] = useState(false);
   const [toastId, setToastId] = useState(null);
 
-  const showToast = (message, type = "success", autoClose = 5000) => {
+  const showToast = (message, type = "success", autoClose = 5000, options = {}) => {
+    const opts = {
+      autoClose,
+      ...options,
+      toastId: options.toastId !== undefined ? options.toastId : (typeof message === "string" ? message : undefined),
+    };
     switch (type) {
       case "success":
-        toast.success(message, { autoClose });
+        toast.success(message, opts);
         break;
       case "error":
-        toast.error(message, { autoClose });
+        toast.error(message, opts);
         break;
       case "info":
-        toast.info(message, { autoClose });
+        toast.info(message, opts);
         break;
       case "warning":
-        toast.warning(message, { autoClose });
+        toast.warning(message, opts);
         break;
       default:
-        toast(message, { autoClose });
+        toast(message, opts);
     }
   };
 

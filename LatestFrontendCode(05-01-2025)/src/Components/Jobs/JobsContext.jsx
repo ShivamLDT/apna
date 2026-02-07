@@ -107,6 +107,8 @@ export const JobsProvider = ({ children }) => {
       );
 
       const statsData = response?.data?.[0]?.data || [];
+      const counts = response?.data?.[0]?.counts || null;
+      const restoreCounts = response?.data?.[0]?.restore_counts || { success: 0, failed: 0 };
 
       /** ---------------- JOB COUNTS ---------------- **/
       let totalSuccessJobs = 0;
@@ -144,12 +146,32 @@ export const JobsProvider = ({ children }) => {
         }
       });
 
+      const restoreSuccess = Number(restoreCounts?.success || 0);
+      const restoreFailed = Number(restoreCounts?.failed || 0);
+      const fallbackCounts = {
+        backup: {
+          success: totalSuccessJobs,
+          failed: totalFailedJobs,
+          total: totalSuccessJobs + totalFailedJobs,
+        },
+        restore: {
+          success: restoreSuccess,
+          failed: restoreFailed,
+          total: restoreSuccess + restoreFailed,
+        },
+      };
+      const combinedCounts = counts?.combined || {
+        success: fallbackCounts.backup.success + fallbackCounts.restore.success,
+        failed: fallbackCounts.backup.failed + fallbackCounts.restore.failed,
+        total: fallbackCounts.backup.total + fallbackCounts.restore.total,
+      };
       setJobCounts({
-        success: totalSuccessJobs,
-        failed: totalFailedJobs,
-        total: totalSuccessJobs + totalFailedJobs,
+        success: combinedCounts.success,
+        failed: combinedCounts.failed,
+        total: combinedCounts.total,
+        backup: counts?.backup || fallbackCounts.backup,
+        restore: counts?.restore || fallbackCounts.restore,
       });
-
       setJobsByNode(Array.from(nodeMap.values()));
 
       const repoData = Object.entries(repoCounts).map(([repo, count]) => ({
