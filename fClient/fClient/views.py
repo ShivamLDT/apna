@@ -765,11 +765,16 @@ def restoretest():
                         with open(tempfilecreate, "ab") as ftarget:
                             #for df in extracted_data:
                             if extracted_data:
+                                # Compute chunk hash BEFORE py7zr decompress (manifest stores SHA256 of 7z-compressed data)
+                                pre_decompress_hash = hashlib.sha256(extracted_data).hexdigest() if isinstance(extracted_data, (bytes, bytearray)) else ""
                                 decompressed_data= pZip.decompress(encrypted_data=extracted_data,file_name=tccn)
                                 if decompressed_data is None:
                                     raise RuntimeError("Decompress returned None; chunk may be wrong format or corrupted")
                                 expected_hash = str(chunk_manifest.get("chunks", {}).get(str(current_chunk_1based), ""))
-                                actual_hash = hashlib.sha256(decompressed_data).hexdigest()
+                                # Check pre-decompress hash first (backup hashes 7z-compressed data), then fallback to post-decompress
+                                actual_hash = pre_decompress_hash
+                                if expected_hash and expected_hash != actual_hash:
+                                    actual_hash = hashlib.sha256(decompressed_data).hexdigest()
                                 if expected_hash and expected_hash != actual_hash:
                                     log_event(
                                         logger,

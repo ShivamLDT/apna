@@ -9778,6 +9778,15 @@ def get_restore_data():
                 # For file restores, send a single path (restore_destination) so the client writes one file,
                 # not path\filename (which would create a folder named like the file and a .bin inside).
                 # For UNC, use restore_destination directly (the complex _tcc_value replacement doesn't work).
+                # Inject from_path and j_sta into repd so client can build correct LAN chunk paths
+                try:
+                    _repd_dict = json.loads(rec_dict.get("log") or "{}") if isinstance(rec_dict.get("log"), str) else (rec_dict.get("log") if isinstance(rec_dict.get("log"), dict) else {})
+                except Exception:
+                    _repd_dict = {}
+                _repd_dict["from_path"] = rec_dict.get("from_path", "")
+                _repd_dict["j_sta"] = rec_dict.get("name", "")
+                _repd_json = json.dumps(_repd_dict)
+
                 _restore_norm = str(restore_destination).replace(":", "{{DRIVE}}")
                 if mime_type == "file" or str(selectedStorageType).upper() == "UNC":
                     _tccx_value = _restore_norm
@@ -9840,7 +9849,7 @@ def get_restore_data():
                     ),
                     "repd": base64.b64encode(
                         gzip.compress(
-                            str(rec_dict.get("log") or "{}").encode("UTF-8"),
+                            _repd_json.encode("UTF-8"),
                             9,
                             mtime=time.time(),
                         )
