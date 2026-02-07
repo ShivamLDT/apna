@@ -360,6 +360,15 @@ def restoretest():
         chunk_manifest = {}
         if extd and isinstance(extd, dict):
             chunk_manifest = extd.get("chunk_manifest", {}) or {}
+        # #region agent log
+        try:
+            with open(r"c:\Users\LDT\Desktop\New folder\apna\.cursor\debug.log", "a", encoding="utf-8") as _dbg_f:
+                import json as _dbg_json3
+                _dbg_gidn_list_recv = jsrepd.get("gidn_list") if isinstance(jsrepd, dict) else None
+                _dbg_f.write(_dbg_json3.dumps({"hypothesisId":"E_client_recv","location":"fClient/views.py:restoretest:received_jsrepd","message":"jsrepd received from server","data":{"target_file":tccn,"jsrepd_file_name":jsrepd.get("file_name","") if isinstance(jsrepd,dict) else "","gidn_list_len":len(_dbg_gidn_list_recv) if isinstance(_dbg_gidn_list_recv,list) else -1,"gidn_list_ids":[str(g.get("id","") if isinstance(g,dict) else g)[:20] for g in (_dbg_gidn_list_recv or [])],"total_chunks":jsrepd.get("total_chunks") if isinstance(jsrepd,dict) else None,"chunk_manifest_total":chunk_manifest.get("total_chunks") if chunk_manifest else None},"timestamp":__import__("time").time(),"sessionId":"debug-session","runId":"run1"}) + "\n")
+        except Exception:
+            pass
+        # #endregion
         if not chunk_manifest or not chunk_manifest.get("chunks") or not chunk_manifest.get("total_chunks"):
             log_event(
                 logger,
@@ -678,6 +687,14 @@ def restoretest():
                             gfid = jsrepd["gidn_list"][int(ichunkscount)]
                             if isinstance(gfid,dict):
                                 gfid = gfid['id']
+                            # #region agent log
+                            try:
+                                with open(r"c:\Users\LDT\Desktop\New folder\apna\.cursor\debug.log", "a", encoding="utf-8") as _dbg_f:
+                                    import json as _dbg_json2
+                                    _dbg_f.write(_dbg_json2.dumps({"hypothesisId":"E_client","location":"fClient/views.py:restoretest:gdrive_download","message":"GDrive download per chunk","data":{"target_file":tccn,"chunk_index":ichunkscount,"gdrive_file_id":str(gfid)[:40],"gidn_list_len":len(jsrepd.get("gidn_list",[])),"total_chunks_in_manifest":int(chunk_manifest.get("total_chunks",0)),"jsrepd_file_name":jsrepd.get("file_name",""),"jsrepd_total_chunks":jsrepd.get("total_chunks")},"timestamp":__import__("time").time(),"sessionId":"debug-session","runId":"run1"}) + "\n")
+                            except Exception:
+                                pass
+                            # #endregion
                             extracted_data = gd.download_file_bytesio(gfid).read()
                         else:
                             with requests.post(
@@ -959,6 +976,13 @@ def restoretest():
                                 error_message=str(open_err),
                                 extra={"event": "restore_verify_skipped"},
                             )
+                            # Clean up restore state file before returning
+                            try:
+                                _state_path = f"{tccn}.restore.state.json"
+                                if os.path.exists(_state_path):
+                                    os.remove(_state_path)
+                            except Exception:
+                                pass
                             return make_response(
                                 jsonify({
                                     "file": tccn,
@@ -1029,6 +1053,13 @@ def restoretest():
                         error_message="",
                         extra={"event": "restore_verify_skipped", "reason": "no expected file hash"},
                     )
+                    # Clean up restore state file before returning
+                    try:
+                        _state_path = f"{tccn}.restore.state.json"
+                        if os.path.exists(_state_path):
+                            os.remove(_state_path)
+                    except Exception:
+                        pass
                     return make_response(
                         jsonify({
                             "file": tccn,

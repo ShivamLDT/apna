@@ -8063,9 +8063,14 @@ def save_savelogdata(
             "bkupType": bkupType,
             "givn": givn,
             "gidn": gidn,  # drive
+            "gidn_list": [gidn] if (gidn is not None and not isinstance(gidn, list)) else (gidn if isinstance(gidn, list) else []),
+            "total_chunks": int(total_chunks) if total_chunks else 1,
+            "original_path": (tccsrc + os.sep + (file_name or "")).rstrip(os.sep) if file_name else tccsrc,
             "metafile": isMetaFile,
             "isMetaFile": isMetaFile
         }
+        if file_hash:
+            new_item["file_hash"] = str(file_hash)
         logger.info(f"all data comes in savelogdata {new_item}")
     except Exception as exp:
         logger.warning(f"Error comes in savelogdata, backup name: {pNameText} and error: {str(exp)}")
@@ -9282,7 +9287,8 @@ def get_restore_data():
                         pass
                 if not rec_dict.get("log"):
                     rec_dict["log"] = "{}"
-                # GDrive multi-chunk: Backups row may have log with only last chunk (gidn_list len 1). Enrich from backups_m which has full gidn_list and total_chunks.
+                # GDrive: ensure per-file log has correct gidn_list for restore.
+                # Priority: (1) use gidn_list from log if present and valid, (2) build from per-file gidn in log, (3) fallback to backups_M only when file_name matches exactly.
                 if str(selectedStorageType).upper().replace(" ", "") in ["GDRIVE", "GOOGLEDRIVE"]:
                     _log_js = {}
                     try:
@@ -9293,8 +9299,23 @@ def get_restore_data():
                         pass
                     _tc_log = int(_log_js.get("total_chunks", 1)) or 1
                     _gidn_log = _log_js.get("gidn_list") or []
+                    _gidn_single = _log_js.get("gidn")
                     _tc_row = int(rec_dict.get("chunks", rec_dict.get("sum_all", 1)) or 1)
-                    _need_enrich = _tc_log < 2 or (isinstance(_gidn_log, list) and len(_gidn_log) < 2)
+                    # Determine actual total_chunks for this file from backups row (sum_all) – more reliable than log
+                    _actual_tc = max(_tc_row, _tc_log)
+                    # If log already has gidn_list with correct length, no enrichment needed
+                    _has_valid_gidn_list = isinstance(_gidn_log, list) and len(_gidn_log) >= _actual_tc and all(g is not None for g in _gidn_log[:_actual_tc])
+                    # If log has a per-file gidn but no gidn_list, build gidn_list from it (single-chunk file)
+                    _built_from_gidn = False
+                    if not _has_valid_gidn_list and _gidn_single is not None:
+                        if _actual_tc == 1 or _tc_row == 1:
+                            # Single-chunk file: build gidn_list from the per-file gidn
+                            _log_js["gidn_list"] = [_gidn_single]
+                            _log_js["total_chunks"] = 1
+                            rec_dict["log"] = json.dumps(_log_js)
+                            _has_valid_gidn_list = True
+                            _built_from_gidn = True
+                    _need_enrich = not _has_valid_gidn_list
                     if _need_enrich:
                         _rfn = (rec_dict.get("file_name") or "").strip()
                         _rfp = (rec_dict.get("from_path") or "").strip()
@@ -9316,13 +9337,26 @@ def get_restore_data():
                             _bfn = (_bmd.get("file_name") or "").strip()
                             _bfp = (_bmd.get("from_path") or "").strip()
                             _path_ok = (not _rfp or not _bfp or _bfp == _rfp or _rfp in _bfp or _bfp in _rfp)
-                            _name_ok = _rfn and (_bfn == _rfn or (_rfn in _bfn or _bfn in _rfn) or (os.path.basename((_bfp + os.sep + _bfn).replace("\\", os.sep)) == _rfn))
-                            if _name_ok and _path_ok:
-                                _dr = _bmd.get("data_repod")
+                            # Fix: require _bfn to be non-empty for name match (empty string is substring of everything)
+                            _name_ok = _rfn and _bfn and (_bfn == _rfn or (_rfn in _bfn or _bfn in _rfn) or (os.path.basename((_bfp + os.sep + _bfn).replace("\\", os.sep)) == _rfn))
+                            # Also check data_repod file_name matches the file being enriched
+                            _dr = _bmd.get("data_repod")
+                            _repod_name_match = False
+                            if _dr and _rfn:
+                                try:
+                                    _j_check = json.loads(_dr) if isinstance(_dr, str) else _dr
+                                    _repod_fn = (_j_check.get("file_name") or "").strip()
+                                    _repod_name_match = _repod_fn and (_repod_fn == _rfn or os.path.basename(_repod_fn) == _rfn)
+                                except Exception:
+                                    pass
+                            if (_name_ok or _repod_name_match) and _path_ok:
                                 if _dr:
                                     try:
                                         _j = json.loads(_dr) if isinstance(_dr, str) else _dr
-                                        if isinstance(_j, dict) and isinstance(_j.get("gidn_list"), list) and len(_j["gidn_list"]) > 1 and int(_j.get("total_chunks", 0)) > 1:
+                                        # Only apply if data_repod file_name matches the file being enriched (prevents cross-file contamination)
+                                        _j_fn = (_j.get("file_name") or "").strip()
+                                        _j_fn_matches = _j_fn and (_j_fn == _rfn or os.path.basename(_j_fn) == _rfn)
+                                        if isinstance(_j, dict) and isinstance(_j.get("gidn_list"), list) and len(_j["gidn_list"]) >= 1 and _j_fn_matches:
                                             rec_dict["log"] = _dr if isinstance(_dr, str) else json.dumps(_j)
                                             break
                                     except Exception:
